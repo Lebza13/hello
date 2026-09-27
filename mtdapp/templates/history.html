@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}History{% endblock %}
+{% block body %}
+<h1>History — {{ REPORTS[rep].title }}</h1>
+<form class="toolbar" method="get">
+  <select name="report" onchange="this.form.submit()">
+    {% for k, r in REPORTS.items() %}<option value="{{ k }}" {{ 'selected' if k==rep }}>{{ r.title }}</option>{% endfor %}
+  </select>
+  <select name="month" onchange="this.form.submit()">
+    {% for m in months %}<option {{ 'selected' if m==month }}>{{ m }}</option>{% endfor %}
+    {% if month not in months %}<option selected>{{ month }}</option>{% endif %}
+  </select>
+  <span style="flex:1"></span>
+  <a class="btn light" href="{{ url_for('history', report=rep, month=month, format='csv') }}">Download CSV</a>
+  <a class="btn" href="{{ url_for('edit_day', rep=rep) }}">Add a day by hand</a>
+</form>
+<p class="sub small">Grey figures below each value are month-to-date. Blank = not reported.</p>
+<div class="card scroll">
+<table>
+  <tr><th>Date</th>{% for f in fields %}<th class="num">{{ f.label }}<br><span class="muted">{{ f.unit }}</span></th>{% endfor %}<th>Note</th><th></th></tr>
+  {% for r in rows %}
+  <tr><td>{{ r.date|dmy }}</td>
+    {% for f in fields %}<td class="num">{{ r['values'].get(f.key)|n(1) if r['values'].get(f.key) is not none else '' }}
+      {% if f.mtd and r.mtd.get(f.key) is not none %}<br><span class="muted small">{{ r.mtd.get(f.key)|n(1) }}</span>{% endif %}</td>{% endfor %}
+    <td class="small">{{ r.note or '' }}</td>
+    <td><a href="{{ url_for('edit_day', rep=rep, day=r.date) }}">Edit</a></td></tr>
+  {% else %}<tr><td colspan="{{ fields|length + 3 }}" class="muted">No days saved for {{ month }}.</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

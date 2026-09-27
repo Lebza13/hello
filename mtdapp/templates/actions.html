@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Management actions{% endblock %}
+{% block body %}
+<h1>Management actions</h1>
+<div class="toolbar">
+  {% if request.args.get('all') %}<a href="{{ url_for('actions') }}">Hide closed</a>{% else %}<a href="{{ url_for('actions', all=1) }}">Show closed</a>{% endif %}
+</div>
+{% macro row(a) %}
+<form method="post" class="card" style="margin-bottom:10px">
+  {% if a.id %}<input type="hidden" name="id" value="{{ a.id }}">{% endif %}
+  <div class="grid g3">
+    <label>Status<br><select name="status">
+      {% for s, t in [('red','Behind'),('amber','Watch'),('green','On track')] %}<option value="{{ s }}" {{ 'selected' if a.status==s }}>{{ t }}</option>{% endfor %}
+    </select></label>
+    <label>Owner<br><input type="text" name="owner" value="{{ a.owner or '' }}" style="width:100%"></label>
+    <label>Due<br><input type="text" name="due" value="{{ a.due or '' }}" style="width:100%"></label>
+  </div>
+  <p><label>Finding<br><textarea name="finding" rows="2" style="width:100%">{{ a.finding or '' }}</textarea></label></p>
+  <p><label>Required action<br><textarea name="action" rows="2" style="width:100%">{{ a.action or '' }}</textarea></label></p>
+  <p><label>Success measure<br><input type="text" name="measure" value="{{ a.measure or '' }}" style="width:100%"></label></p>
+  <div class="toolbar">
+    <button>{{ 'Save' if a.id else 'Add action' }}</button>
+    {% if a.id %}<label><input type="checkbox" name="closed" {{ 'checked' if a.closed }}> Closed</label>
+    <span style="flex:1"></span><button class="danger" name="delete" value="1" onclick="return confirm('Delete this action?')">Delete</button>{% endif %}
+  </div>
+</form>
+{% endmacro %}
+{% for a in actions %}{{ row(a) }}{% endfor %}
+<h2>New action</h2>
+{{ row({}) }}
+{% endblock %}

@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% block title %}MTD Dashboard{% endblock %}
+{% macro badge(st, text=None) -%}
+  <span class="badge {{ st }}">{{ text or {'green':'On track','amber':'Watch','red':'Behind','none':'No data'}[st] }}</span>
+{%- endmacro %}
+{% block body %}
+<div class="toolbar">
+  <form method="get" class="toolbar" style="margin:0">
+    <label>Month <select name="month" onchange="this.form.submit()">
+      {% for m in months %}<option {{ 'selected' if m==month }}>{{ m }}</option>{% endfor %}
+      {% if month not in months %}<option selected>{{ month }}</option>{% endif %}
+    </select></label>
+    {% if d %}<label>As at <input type="date" name="as_at" value="{{ d.as_at }}" min="{{ month }}-01" max="{{ month }}-31" onchange="this.form.submit()"></label>{% endif %}
+  </form>
+  <span style="flex:1"></span>
+  <a class="btn light" href="{{ url_for('upload') }}">Upload today's reports</a>
+  {% if d %}<a class="btn" href="{{ url_for('export', month=month) }}">Download consolidated Excel</a>{% endif %}
+</div>
+
+{% if not d %}
+  <div class="card">
+    <h1>No data for {{ month }} yet</h1>
+    <p class="sub">Upload the three daily reports (production, engineering snapshot, material car report),
+      or upload the existing consolidated MTD workbook once to load its history.</p>
+    <a class="btn" href="{{ url_for('upload') }}">Go to upload</a>
+  </div>
+{% else %}
+<h1>MTD Performance Dashboard</h1>
+<p class="sub">Position as at <b>{{ d.as_at|dmy }}</b> · {{ d.production_days }} production reports this month
+  {% if d.last_production %} · latest production report {{ d.last_production.date|dmy }}
+  {% if d.last_production.note %}<span class="muted">({{ d.last_production.note }})</span>{% endif %}{% endif %}</p>
+
+<h2>Mining — source MTD</h2>
+<div class="grid g3">
+{% for m in d.mining %}
+  <div class="card tile {{ m.status }}">
+    <div class="label">{{ m.name }}</div>
+    <div class="value">{{ m.mtd|n(1 if m.unit=='m' else 0) }} {{ m.unit }}</div>
+    <div class="meta">{{ badge(m.status) }} {{ '%.1f'|format(m.pct) if m.pct is not none else '—' }}% of plan {{ m.plan|n(1 if m.unit=='m' else 0) }} {{ m.unit }}</div>
+    <div class="bar"><span style="width:{{ [m.pct or 0, 100]|min }}%"></span></div>
+    <div class="meta small" style="margin-top:6px">Latest report: {{ m.day_actual|n(1) }} vs plan {{ m.day_plan|n(1) }}
+      {% if m.day_actual is not none and m.day_plan is not none %}({{ (m.day_actual - m.day_plan)|signed(1) }}){% endif %}</div>
+  </div>
+{% endfor %}
+</div>
+
+<h2>Daily call control</h2>
+<div class="grid g3">
+  <div class="card tile"><div class="label">Daily call</div><div class="value">{{ d.call.call|n }} t</div>
+    <div class="meta">Reef hoisting target per production day</div></div>
+  {% set hst = 'none' if d.call.hoisted_pct is none else ('green' if d.call.hoisted_pct >= -5 else 'amber' if d.call.hoisted_pct >= -15 else 'red') %}
+  <div class="card tile {{ hst }}"><div class="label">Reef hoisted — latest day vs call</div>
+    <div class="value">{{ d.call.hoisted_var|signed }} t</div>
+    <div class="meta">{{ badge(hst) }} {{ d.call.hoisted_day|n }} t · {{ d.call.hoisted_pct|signed(1) }}%</div></div>
+  {% set dst = 'none' if d.call.delivered_pct is none else ('green' if d.call.delivered_pct >= -5 else 'amber' if d.call.delivered_pct >= -15 else 'red') %}
+  <div class="card tile {{ dst }}"><div class="label">Delivered — latest day vs call</div>
+    <div class="value">{{ d.call.delivered_var|signed }} t</div>
+    <div class="meta">{{ badge(dst) }} {{ d.call.delivered_day|n }} t · {{ d.call.delivered_pct|signed(1) }}%</div></div>
+</div>
+
+<h2>Material flow — MTD vs plan to date ({{ d.plan_to_date|n }} t)</h2>
+<div class="grid g4">
+{% for f in d.flow %}
+  <div class="card tile {{ f.status }}">
+    <div class="label">{{ f.name }}</div>
+    <div class="value">{{ f.mtd|n }} t</div>
+    <div class="meta">{{ badge(f.status) }} {{ '%.1f'|format(f.pct) if f.pct is not none else '—' }}% · latest report {{ f.day|n }} t</div>
+    <div class="bar"><span style="width:{{ [f.pct or 0, 100]|min }}%"></span></div>
+  </div>
+{% endfor %}
+</div>
+
+<div class="grid g2" style="margin-top:12px">
+  <div class="card">
+    <div class="label small muted">Cumulative tonnes vs plan to date (t)</div>
+    <div class="chart-box" id="trend"></div>
+  </div>
+  <div class="card">
+    <div class="label small muted">Month-end recovery</div>
+    {% set r = d.recovery %}
+    <table class="kv">
+      <tr><td>Month plan</td><td>{{ r.plan|n }} t</td></tr>
+      <tr><td>MTD hoisted</td><td>{{ r.mtd|n }} t</td></tr>
+      <tr><td>Balance</td><td>{{ r.balance|n }} t</td></tr>
+      <tr><td>Roster shifts remaining after {{ d.as_at|dmy }}</td><td>{{ r.remaining_shifts|n }}</td></tr>
+      <tr><td>Equivalent hoisting days left</td><td>{{ r.eq_days|n(1) }}</td></tr>
+      <tr><td>Required rate</td><td>{{ r.required|n }} t/day</td></tr>
+      <tr><td>Required uplift vs call</td><td>{{ r.uplift|signed(1) }}%</td></tr>
+      <tr><td>Projection at current rate</td><td>{{ r.projection|n }} t</td></tr>
+      <tr><td>Forecast shortfall</td><td>{{ r.shortfall|n }} t</td></tr>
+    </table>
+  </div>
+</div>
+
+<h2>Engineering — {{ d.engineering.date|dmy if d.engineering else 'no snapshot yet' }}</h2>
+<div class="grid g4">
+{% for label, v in d.availability %}
+  {% set st = 'none' if v is none else ('green' if v >= 95 else 'amber' if v >= 85 else 'red') %}
+  <div class="card tile {{ st }}"><div class="label">{{ label }}</div>
+    <div class="value">{{ v|n(2) }}%</div><div class="meta">{{ badge(st) }}</div></div>
+{% endfor %}
+</div>
+
+<div class="grid g3" style="margin-top:12px">
+  <div class="card"><div class="label small muted">Stocks — closing position</div>
+    <table class="kv">
+      <tr><td>Surface stock</td><td>{{ d.stocks.surface|n }} t</td></tr>
+      <tr><td>U/G stock</td><td>{{ d.stocks.ug|n }} t</td></tr>
+      <tr><td>Total stock</td><td>{{ d.stocks.total|n }} t</td></tr>
+    </table></div>
+  {% set sp = d.spillage %}
+  <div class="card"><div class="label small muted">Shaft-bottom spillage {% if sp.status %}{{ badge(sp.status, '%.0f'|format(sp.pct_critical) ~ '% of critical') }}{% endif %}</div>
+    <table class="kv">
+      <tr><td>Underlay / overlay clearance</td><td>{{ (d.engineering['values'].underlay if d.engineering else none)|n(1) }} / {{ (d.engineering['values'].overlay if d.engineering else none)|n(1) }} m</td></tr>
+      <tr><td>Estimated inventory</td><td>{{ sp.inventory|n }} t</td></tr>
+      <tr><td>Margin to critical level</td><td>{{ sp.margin|n }} t</td></tr>
+      <tr><td>MTD removed</td><td>{{ sp.removed|n(1) }} t</td></tr>
+      <tr><td>Days to clear at MTD rate</td><td>{{ sp.days_to_clear|n }}</td></tr>
+    </table></div>
+  {% set lg = d.logistics %}
+  <div class="card"><div class="label small muted">Material logistics {% if lg %}— {{ lg.date|dmy }} {{ badge(lg.closing_status, 'Backlog clear' if lg.closing_status=='green' else 'Backlog') }}{% endif %}</div>
+    {% if lg %}
+    <table class="kv">
+      <tr><td>Booked / full down / empty up</td><td>{{ lg.day.booked|n }} / {{ lg.day.full_down|n }} / {{ lg.day.empty_up|n }}</td></tr>
+      <tr><td>Left U/G / left surface</td><td>{{ lg.day.closing_ug|n }} / {{ lg.day.closing_surface|n }}</td></tr>
+      <tr><td>MTD full down / empty up</td><td>{{ lg.mtd.full_down|n }} / {{ lg.mtd.empty_up|n }}</td></tr>
+      <tr><td>MTD delivery % (down ÷ booked)</td><td>{{ lg.delivery_pct|n(1) }}%</td></tr>
+      <tr><td>MTD explosives / vent pipes / bogeys</td><td>{{ lg.mtd.explosives_down|n }} / {{ lg.mtd.vent_pipes_down|n }} / {{ lg.mtd.bogeys_slung|n }}</td></tr>
+    </table>
+    {% else %}<p class="muted">No material car report this month.</p>{% endif %}</div>
+</div>
+
+<h2>Top exceptions</h2>
+<div class="card scroll">
+  {% if d.exceptions %}
+  <table>
+    <tr><th>Status</th><th>Area</th><th>Position</th></tr>
+    {% for x in d.exceptions %}<tr><td>{{ badge(x.status) }}</td><td>{{ x.name }}</td><td>{{ x.detail }}</td></tr>{% endfor %}
+  </table>
+  {% else %}<p class="muted">Everything is at or above 95% of plan.</p>{% endif %}
+</div>
+
+<h2>Open management actions</h2>
+<div class="card scroll">
+  {% if actions %}
+  <table>
+    <tr><th>Status</th><th>Finding</th><th>Required action</th><th>Owner</th><th>Due</th></tr>
+    {% for a in actions %}<tr><td>{{ badge(a.status or 'none') }}</td><td>{{ a.finding }}</td><td>{{ a.action }}</td><td>{{ a.owner }}</td><td>{{ a.due }}</td></tr>{% endfor %}
+  </table>
+  {% else %}<p class="muted">No open actions. <a href="{{ url_for('actions') }}">Add one</a>.</p>{% endif %}
+</div>
+
+<details style="margin-top:16px"><summary>Trend table</summary>
+<div class="card scroll" style="margin-top:8px"><table>
+  <tr><th>Date</th><th class="num">Plan to date</th><th class="num">Reef hoisted</th><th class="num">U/G trammed</th><th class="num">Delivered</th><th class="num">Stoping plan</th><th class="num">Stoping</th><th class="num">Projection</th></tr>
+  {% for t in d.trend %}<tr><td>{{ t.date|dmy }}</td><td class="num">{{ t.plan|n }}</td><td class="num">{{ t.hoisted|n }}</td><td class="num">{{ t.trammed|n }}</td><td class="num">{{ t.delivered|n }}</td><td class="num">{{ t.stoping_plan|n }}</td><td class="num">{{ t.stoping|n }}</td><td class="num">{{ t.projection|n }}</td></tr>{% endfor %}
+</table></div></details>
+
+<script>
+(function () {
+  // Small dependency-free SVG line chart (works offline).
+  const rows = {{ chart|safe }};
+  const box = document.getElementById("trend");
+  if (!rows.length) { box.innerHTML = '<p class="muted">No production reports yet.</p>'; return; }
+  const series = [
+    {name: "Plan to date", key: "plan", color: "var(--plan)", dash: "5 4"},
+    {name: "Reef hoisted", key: "hoisted", color: "var(--series-1)"},
+    {name: "U/G trammed", key: "trammed", color: "var(--series-2)"},
+    {name: "Delivered", key: "delivered", color: "var(--series-3)"},
+  ];
+  const fmt = v => v == null ? "—" : Math.round(v).toLocaleString("en-ZA");
+  const lab = iso => new Date(iso + "T00:00:00").toLocaleDateString("en-ZA", {day: "2-digit", month: "short"});
+  const legend = document.createElement("div");
+  legend.className = "legend";
+  legend.innerHTML = series.map(s => `<span><i style="border-top:2px ${s.dash ? "dashed" : "solid"} ${s.color}"></i>${s.name}</span>`).join("");
+  box.before(legend);
+  function draw() {
+    const W = box.clientWidth, H = box.clientHeight, L = 44, R = 12, T = 8, B = 24;
+    const max = Math.max(...rows.flatMap(r => series.map(s => r[s.key] || 0))) * 1.05 || 1;
+    const step = Math.pow(10, Math.floor(Math.log10(max / 4)));
+    const tick = [1, 2, 2.5, 5, 10].map(m => m * step).find(t => max / t <= 5);
+    const x = i => L + (rows.length === 1 ? (W - L - R) / 2 : i * (W - L - R) / (rows.length - 1));
+    const y = v => T + (H - T - B) * (1 - v / max);
+    let svg = `<svg width="${W}" height="${H}" role="img" aria-label="Cumulative tonnes by production day">`;
+    for (let v = 0; v <= max; v += tick)
+      svg += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--border)"/>` +
+             `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${v / 1000}k</text>`;
+    const every = Math.ceil(rows.length / Math.max(1, Math.floor((W - L) / 56)));
+    rows.forEach((r, i) => { if (i % every === 0 || i === rows.length - 1)
+      svg += `<text x="${x(i)}" y="${H - 6}" text-anchor="${i === rows.length - 1 && rows.length > 1 ? "end" : i === 0 ? "start" : "middle"}" font-size="11" fill="var(--muted)">${lab(r.date)}</text>`; });
+    for (const s of series) {
+      const pts = rows.map((r, i) => r[s.key] == null ? null : `${x(i)},${y(r[s.key])}`).filter(Boolean);
+      svg += `<polyline fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" ${s.dash ? `stroke-dasharray="${s.dash}"` : ""} points="${pts.join(" ")}"/>`;
+    }
+    svg += `<line id="xh" y1="${T}" y2="${H - B}" stroke="var(--muted)" visibility="hidden"/>`;
+    svg += series.map((s, k) => `<circle id="dot${k}" r="4" fill="${s.color}" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>`).join("");
+    svg += `</svg><div class="tip" hidden></div>`;
+    box.innerHTML = svg;
+    const tip = box.querySelector(".tip"), xh = box.querySelector("#xh");
+    box.onmousemove = e => {
+      const rect = box.getBoundingClientRect(), mx = e.clientX - rect.left;
+      let i = Math.round((mx - L) / ((W - L - R) / Math.max(1, rows.length - 1)));
+      i = Math.max(0, Math.min(rows.length - 1, i));
+      const r = rows[i];
+      xh.setAttribute("x1", x(i)); xh.setAttribute("x2", x(i)); xh.setAttribute("visibility", "visible");
+      series.forEach((s, k) => { const c = box.querySelector("#dot" + k);
+        if (r[s.key] == null) return c.setAttribute("visibility", "hidden");
+        c.setAttribute("cx", x(i)); c.setAttribute("cy", y(r[s.key])); c.setAttribute("visibility", "visible"); });
+      tip.innerHTML = `<b>${lab(r.date)}</b>` + series.map(s => `<div><i style="background:${s.color}"></i>${s.name}<span>${fmt(r[s.key])} t</span></div>`).join("");
+      tip.hidden = false;
+      tip.style.left = Math.min(x(i) + 12, W - tip.offsetWidth - 4) + "px";
+      tip.style.top = "8px";
+    };
+    box.onmouseleave = () => { tip.hidden = true; xh.setAttribute("visibility", "hidden");
+      series.forEach((s, k) => box.querySelector("#dot" + k).setAttribute("visibility", "hidden")); };
+  }
+  draw();
+  let t; window.addEventListener("resize", () => { clearTimeout(t); t = setTimeout(draw, 150); });
+})();
+</script>
+{% endif %}
+{% endblock %}

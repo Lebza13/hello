@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block body %}
+<h1>Settings</h1>
+<form method="get" class="toolbar"><label>Month
+  <input type="month" name="month" value="{{ month }}" onchange="this.form.submit()"></label></form>
+<form method="post" class="grid g2">
+  <input type="hidden" name="month" value="{{ month }}">
+  <div class="card"><b>Plan for {{ month }}</b>
+    <table>{% for s in SETTINGS %}
+      <tr><td>{{ s.label }} <span class="muted">({{ s.unit }})</span></td>
+        <td><input type="number" step="any" name="{{ s.key }}" value="{{ ms[s.key] }}"></td></tr>{% endfor %}
+    </table>
+    <p class="small muted">Plan to date = daily call × production reports received. Projection = MTD ÷ reports × planned hoisting days.</p>
+  </div>
+  <div class="card"><b>Roster &amp; spillage model</b>
+    <table>
+      <tr><td>A known working Saturday <span class="muted">(Saturdays alternate from this one)</span></td>
+        <td><input type="date" name="anchor" value="{{ anchor }}"></td></tr>
+      {% for s in SPILL %}
+      <tr><td>{{ s.label }} <span class="muted">({{ s.unit }})</span></td>
+        <td><input type="number" step="any" name="{{ s.key }}" value="{{ sp[s.key] }}"></td></tr>{% endfor %}
+    </table>
+  </div>
+  <div><button>Save settings</button></div>
+</form>
+{% endblock %}
