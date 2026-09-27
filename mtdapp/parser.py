@@ -1,13 +1,24 @@
 """Read the daily input spreadsheets.
 
-Two layouts are understood, on any sheet of an .xlsx/.xlsm/.csv file:
+Layouts understood, on any sheet of an .xlsx/.xlsm/.csv file or a text PDF:
 
-1. Label / value  - a cell holding a known label (e.g. "Reef Hoisted") with the
-   number in a cell to its right (or directly below). A "Date" label gives the
-   report date. This is the layout of the downloadable templates.
+1. Label / value  - a cell holding a known label (e.g. "Eng Avail", "Actual Reef
+   Tonnes") with the number in a cell to its right (or directly below). When a
+   daily figure is followed by a second number on the same row (Daily | MTD, as
+   on the production report) the second number is stored as the stated MTD.
 
-2. Table          - a header row containing "Date" and two or more known labels,
+2. Column totals  - column headers with a "Total" row underneath, as on the
+   Shaft Car Report (Booked, Empties Up, Full Cars Down ... and the explosives,
+   vent pipe and sling sub-tables).
+
+3. Table          - a header row containing "Date" and two or more known labels,
    followed by one row per day. Useful for back-filling many days at once.
+
+The date comes from a "Date" label (value right, below or left of it), else any
+date written in the first rows (e.g. "Daily Report 18 Sept 2026"), else the file
+name, else the date typed on the upload form.
+
+Numbers may use South African formatting: "3 513", "56,36%", "13,2".
 
 Each sheet is matched to one of the three reports (production, engineering,
 material cars) by counting how many of that report's labels it contains, so a
@@ -52,11 +63,20 @@ def to_number(v):
         return None
     if isinstance(v, (int, float)):
         return float(v)
-    s = str(v).strip().replace("−", "-").replace(" ", "").replace(",", "")
-    m = re.match(r"^([-+]?\d*\.?\d+)(%?)", s)
-    if not m or s.lower() in ("", "-", "—", "n/a", "na"):
+    s = str(v).strip().replace("\u2212", "-")
+    s = re.sub(r"[\s\u00a0\u202f]", "", s)          # space thousands separators
+    m = re.match(r"^[-+]?[\d.,]*\d", s)
+    if not m:
         return None
-    return float(m.group(1))
+    num = m.group(0)
+    if "," in num and "." in num:                 # the last separator is the decimal one
+        num = num.replace(",", "") if num.rfind(".") > num.rfind(",") else num.replace(".", "").replace(",", ".")
+    elif "," in num:
+        num = num.replace(",", "") if re.fullmatch(r"[-+]?\d{1,3}(,\d{3})+", num) else num.replace(",", ".")
+    try:
+        return float(num)
+    except ValueError:
+        return None
 
 
 def to_date(v, default_year=None):
@@ -92,8 +112,71 @@ def _safe_date(y, mth, d):
         return None
 
 
+DATE_TEXT = re.compile(r"\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4}|"
+                       r"\d{1,2}[-/. ]+[A-Za-z]{3,9}[-/., ]+\d{4}")
+
+
+def find_date_text(v):
+    """A date written inside text, e.g. 'Thembelani Daily Report 18 Sept 2026'."""
+    if isinstance(v, (datetime, date)):
+        return to_date(v)
+    if not isinstance(v, str):
+        return None
+    m = DATE_TEXT.search(v)
+    return to_date(m.group(0)) if m else None
+
+
+NUM_WORD = re.compile(r"^[-+\u2212]?\d[\d,.]*%?$")
+
+
+def words_to_grid(words, gap=3.0):
+    """Rebuild table rows from positioned PDF words: [label, number, number, ...].
+    Digit groups closer than `gap` points ("25" "149") are one number (25 149)."""
+    lines = []
+    for w in sorted(words, key=lambda w: (w["top"], w["x0"])):
+        if lines and abs(w["top"] - lines[-1][0]) <= 2.5:
+            lines[-1][1].append(w)
+        else:
+            lines.append((w["top"], [w]))
+    grid = []
+    for _, ws in lines:
+        ws = sorted(ws, key=lambda w: w["x0"])
+        label, cells = [], []
+        for w in ws:
+            t = w["text"]
+            prev = cells[-1] if cells else None
+            if NUM_WORD.match(t) and label:
+                if prev and prev["num"] and w["x0"] - prev["x1"] < gap and re.fullmatch(r"\d{3}([,.]\d+)?%?", t) \
+                        and not prev["text"].endswith("%"):
+                    prev["text"] += t          # "25" + "149" -> "25149"
+                    prev["x1"] = w["x1"]
+                else:
+                    cells.append(dict(text=t, x1=w["x1"], num=True))
+            elif cells:                        # text after the numbers stays one cell
+                if prev and not prev["num"]:
+                    prev["text"] += " " + t
+                    prev["x1"] = w["x1"]
+                else:
+                    cells.append(dict(text=t, x1=w["x1"], num=False))
+            else:
+                label.append(t)
+        grid.append([" ".join(label)] + [c["text"] for c in cells])
+    return grid
+
+
+def pdf_grid(data):
+    import pdfplumber
+    grids = []
+    with pdfplumber.open(io.BytesIO(data)) as pdf:
+        for page in pdf.pages:
+            grids.append((f"page {page.page_number}", words_to_grid(page.extract_words())))
+    return grids
+
+
 def read_grids(data, filename):
     """Return [(sheet_name, grid)] where grid is a list of rows of cell values."""
+    if filename.lower().endswith(".pdf") or data[:5] == b"%PDF-":
+        return pdf_grid(data)
     if filename.lower().endswith(".csv"):
         text = data.decode("utf-8-sig", errors="replace")
         return [(filename, [row for row in csv.reader(io.StringIO(text))])]
@@ -118,6 +201,74 @@ def _right_or_below(grid, r, c, want):
     if r + 1 < len(grid) and c < len(grid[r + 1]):
         return want(grid[r + 1][c])
     return None
+
+
+def _numbers_right(grid, r, c, limit=2):
+    """Numbers following a label on its row (stops at the first text cell)."""
+    out = []
+    for v in grid[r][c + 1:c + 10]:
+        if v is None or str(v).strip() == "":
+            continue
+        n = to_number(v)
+        if n is None:
+            break
+        out.append(n)
+        if len(out) == limit:
+            break
+    return out
+
+
+def _left(grid, r, c, want):
+    for cc in range(c - 1, -1, -1):
+        v = grid[r][cc]
+        if v is not None and str(v).strip() != "":
+            return want(v)
+    return None
+
+
+def column_totals(report, grid):
+    """Values from the 'Total' row under column headers (Shaft Car Report layout)."""
+    cells = [(r, c, norm(v)) for r, row in enumerate(grid) for c, v in enumerate(row) if isinstance(v, str)]
+    out = {}
+    for f in F.fields(report):
+        if not f.get("column"):
+            continue
+        header, group = norm(f["column"][0]), f["column"][1] and norm(f["column"][1])
+        cands = [(r, c) for r, c, k in cells if k == header]
+        if group:
+            grp = [(r, c) for r, c, k in cells if k == group]
+            if not grp:
+                continue
+            gr, gc = grp[0]
+            cands = sorted([(r, c) for r, c in cands if r > gr and c >= gc], key=lambda rc: (rc[1] - gc, rc[0]))
+        for r, c in cands:
+            v = _total_below(grid, r, c)
+            if v is not None:
+                out[f["key"]] = v
+                break
+    return out
+
+
+def _total_below(grid, r, c):
+    for rr in range(r + 1, min(len(grid), r + 60)):
+        row = grid[rr]
+        if any(isinstance(v, str) and norm(v) in ("total", "totals") for v in row[:c + 1]):
+            return to_number(row[c]) if c < len(row) else None
+    return None
+
+
+def column_notes(grid):
+    """Text written under 'Remarks' / 'Major Delays' headers."""
+    heads = {norm(h) for h in F.NOTE_COLUMNS}
+    notes = []
+    for r, row in enumerate(grid):
+        for c, v in enumerate(row):
+            if isinstance(v, str) and norm(v) in heads:
+                for body in grid[r + 1:r + 40]:
+                    t = body[c] if c < len(body) else None
+                    if isinstance(t, str) and t.strip() and norm(t) not in heads:
+                        notes.append(t.strip())
+    return "; ".join(dict.fromkeys(notes)) or None
 
 
 def classify(sheet_name, filename, grid, forced=None):
@@ -165,23 +316,36 @@ def parse_grid(report, grid, default_date=None, filename=""):
             if records:
                 return records
 
-    # --- label / value layout ----------------------------------------------
-    vals, found_date, note = {}, None, None
+    # --- column totals + label / value layout --------------------------------
+    vals = {k: _pct(k, v, pct) for k, v in column_totals(report, grid).items()}
+    mtd_keys = {f["key"] for f in F.fields(report) if f.get("mtd")}
+    found_date, note = None, column_notes(grid)
     for r, row in enumerate(grid):
         for c, v in enumerate(row):
             if not isinstance(v, str):
                 continue
             k = norm(v)
             if k in idx and idx[k] not in vals:
-                num = _right_or_below(grid, r, c, to_number)
-                if num is not None:
-                    vals[idx[k]] = _pct(idx[k], num, pct)
+                nums = _numbers_right(grid, r, c)
+                if not nums:
+                    below = _right_or_below(grid, r, c, to_number) if c + 1 >= len(row) or all(
+                        x is None or str(x).strip() == "" for x in row[c + 1:]) else None
+                    nums = [below] if below is not None else []
+                if nums:
+                    vals[idx[k]] = _pct(idx[k], nums[0], pct)
+                    if len(nums) > 1 and idx[k] in mtd_keys and idx[k] + "_mtd" not in vals:
+                        vals[idx[k] + "_mtd"] = _pct(idx[k], nums[1], pct)
             elif k in DATE_KEYS and not found_date:
-                found_date = _right_or_below(grid, r, c, lambda x: to_date(x, year))
+                found_date = _right_or_below(grid, r, c, lambda x: to_date(x, year)) or \
+                    _left(grid, r, c, lambda x: to_date(x, year))
             elif k in NOTE_KEYS and not note:
                 note = _right_or_below(grid, r, c, lambda x: str(x).strip() or None)
     if not vals:
         return []
+    if not found_date:
+        found_date = next((d for row in grid[:8] if (d := find_date_text(
+            " ".join(str(v) for v in row if v is not None and not isinstance(v, (datetime, date)))) or next(
+            (to_date(v) for v in row if isinstance(v, (datetime, date))), None))), None)
     d = found_date or to_date(filename, year) or default_date
     return [dict(date=d, values=vals, note=note)]
 

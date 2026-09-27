@@ -1,7 +1,8 @@
 """All derived figures: month-to-date totals, recovery maths, spillage model.
 
 The formulas reproduce the consolidated MTD workbook:
-  plan to date      = daily call x number of production reports in the month
+  plan to date      = planned reef tonnes MTD from the production report, or
+                      daily call x number of production reports in the month
   projection        = reef hoisted MTD / production reports x planned hoisting days
   equivalent days   = roster shifts remaining after the as-at date / 3
   required rate     = (month plan - MTD hoisted) / equivalent days
@@ -123,8 +124,9 @@ def dashboard(db, month, as_at=None):
     last = prod[-1] if prod else None
     m = last["mtd"] if last else {}
     lv = last["values"] if last else {}
-    plan_td = call * n
-    wplan_td = wcall * n
+    # plan to date: as stated on the production report, else daily call x reports
+    plan_td = m.get("reef_plan") if m and m.get("reef_plan") is not None else call * n
+    wplan_td = m.get("waste_plan") if m and m.get("waste_plan") is not None else wcall * n
 
     def g(key):
         return m.get(key) if m else None
@@ -203,7 +205,8 @@ def trend(prod, s):
     out = []
     for i, r in enumerate(prod, 1):
         hm = r["mtd"].get("reef_hoisted")
-        out.append(dict(date=r["date"], plan=s["daily_call"] * i, hoisted=hm,
+        plan = r["mtd"].get("reef_plan")
+        out.append(dict(date=r["date"], plan=plan if plan is not None else s["daily_call"] * i, hoisted=hm,
                         trammed=r["mtd"].get("trammed"), delivered=r["mtd"].get("delivered"),
                         stoping_plan=r["mtd"].get("stoping_plan"), stoping=r["mtd"].get("stoping_actual"),
                         projection=(hm / i * s["planned_hoisting_days"]) if hm is not None else None))

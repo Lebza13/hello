@@ -51,22 +51,31 @@ calendar and management action history.
 
 ## How the input files are read
 
-The app looks for known labels (for example *Reef Hoisted*, *Cars Down*, *Underlay*) anywhere
-in each sheet and takes the number in the cell to the right, or directly below. A *Date* label
-gives the report date. If there's no date in the file, the date in the file name is used, then the date typed on the upload form.
-A sheet with a *Date* column and one row per day also works, which is useful for back-filling.
+The three Thembelani reports are read as they are today:
 
+| Report | Format | What is read |
+|---|---|---|
+| Daily Production Report | PDF (or Excel) | Stoping, primary reef/waste development, planned & actual reef tonnes, waste tonnes, U/G trammed, delivered to concentrator: each **Daily and MTD**. The date comes from the title ("Thembelani Daily Report 18 Sept 2026") |
+| Engineering snapshot | Excel | Eng/Hoisting/Belt availabilities, Hoist Today/MTD, Mill Today/MTD, surface & U/G stocks, underlay, overlay, skips |
+| Shaft Car Report | Excel | The **Total** row: booked, empties up, empties left underground, full cars down, full cars left on surface; explosives down, vent pipes down, bogeys slung; remarks and major delays become the day's note |
+
+South African number formats are understood ("3 513", "56,36%", "13,2").
 Blank cells are stored as "not reported". They are never counted as zero.
 
-If your real reports use different wording, add it to the `aliases` of the field in
-[`mtdapp/fields.py`](mtdapp/fields.py). Blank input templates for each report can be
-downloaded from the Upload page.
+How it works: the app looks for known labels anywhere in each sheet and takes the number
+to the right. A second number on the same row is taken as the MTD. On the car report it
+reads the Total row under each column heading. If a report's wording changes, add the new
+wording to the `aliases` of that field in [`mtdapp/fields.py`](mtdapp/fields.py).
+Screenshots/scanned images can't be read. Upload the Excel or PDF file itself.
+
+Always check the dates on the review screen: the three reports for one shift day should carry
+the same date, and the app warns when they don't.
 
 ## Calculations (same as the spreadsheet)
 
 * MTD = running sum of daily figures. If a report states its own MTD (for example the reset
   stoping series), that stated MTD is used instead.
-* Plan to date = daily call × production reports received this month.
+* Plan to date = "Planned Reef Tonnes" MTD from the production report (falls back to daily call × reports received).
 * Projection = reef hoisted MTD ÷ production reports × planned hoisting days.
 * Equivalent hoisting days left = roster shifts after the as-at date ÷ 3.
 * Required rate = (month plan − MTD hoisted) ÷ equivalent days left.
@@ -78,6 +87,6 @@ downloaded from the Upload page.
 ```bash
 .venv/bin/pip install pytest
 .venv/bin/python -m pytest tests
-# optional: check the history import against the old workbook
-MTD_SAMPLE_WORKBOOK=/path/to/consolidated.xlsx .venv/bin/python -m pytest tests
+# optional: check against the real files
+MTD_SAMPLE_WORKBOOK=/path/to/consolidated.xlsx MTD_SAMPLE_PDF=/path/to/daily_report.pdf .venv/bin/python -m pytest tests
 ```

@@ -177,3 +177,124 @@ def test_history_import_reproduces_consolidated_workbook():
     assert d["recovery"]["required"] == pytest.approx(8672)
     assert round(d["recovery"]["projection"]) == 103417
     assert d["logistics"]["mtd"]["full_down"] == 994 and d["logistics"]["mtd"]["empty_up"] == 1198
+
+
+# ---- the real Thembelani report layouts -------------------------------------------------
+def _xlsx(build):
+    wb = openpyxl.Workbook()
+    build(wb.active)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def engineering_sheet(ws):
+    """Layout of the engineering daily snapshot (date left of the 'Date' label)."""
+    from datetime import datetime
+    rows = [(datetime(2026, 9, 18), "Date"), ("Eng Avail", 0.5636), ("Hoisting Avail", "55,91%"), (None, None),
+            ("Overall Belt Avail", 1), ("Sfc Belts Avail", "100,00%"), (None, None),
+            ("Hoist Today (dry)", 3513), ("Hoist MTD", "65 787"), (None, None),
+            ("Mill Today", 2576), ("Mill MTD", 66524), (None, None),
+            ("Surface Stocks", 1662), ("U/G Stocks", 1000), (None, None),
+            ("Spillage", None), ("Underlay (meter)", "13,2"), ("Overlay (meter)", 12.8), ("Skips", 0)]
+    for r in rows:
+        ws.append(list(r))
+
+
+def car_report_sheet(ws):
+    """Layout of the Thembelane Shaft Car Report."""
+    def put(ref, v):
+        ws[ref] = v
+    put("A1", "Date"); put("B1", "20/09/2026"); put("D1", "Thembelane Shaft Car Report")
+    put("C2", "Empty Cars"); put("E2", "Full Cars")
+    for col, h in zip("ABCDEFGH", ["LEVEL", "BOOKED", "Empties Up", "Empties Left\nUnderground", "Full Cars Down",
+                                   "Full Cars Left on\nSurface", "Total Cars\nnot Down", "Remarks"]):
+        put(f"{col}3", h)
+    levels = [("14LEV", 5, 1, 0, 5, 0), ("15LEV", 6, 0, 0, 6, 0), ("16LEV", 3, 13, 0, 2, 0),
+              ("17LEV", 7, 0, 0, 7, 0), ("18LEV", 3, 0, 0, 3, 0), ("19LEV", 29, 33, 18, 0, 29)]
+    for i, row in enumerate(levels, 4):
+        for col, v in zip("ABCDEF", row):
+            put(f"{col}{i}", v)
+    put("G6", 1); put("H6", "Car no:SC011 not found at bank area")
+    put("H9", "29 Full cars left on surface and 18 empty cars left at the station due to 4 bogey's")
+    for col, v in zip("ABCDEF", ["Total", 53, 47, 18, 23, 29]):
+        put(f"{col}10", v)
+    put("A11", "Total Full and Empty)"); put("C11", 70)
+    put("A12", "Other Material")
+    put("A13", "Sling work done"); put("D13", "Explosives Cars"); put("I13", "Vent Pipes"); put("M13", "Major Delays")
+    for col, h in zip("ABCDEFIJKL", ["LEVEL", "Bogeys Down", "Bogey ID (number)", "Level", "Booked", "Down",
+                                      "Level", "Booked", "Size (mm)", "Down"]):
+        put(f"{col}14", h)
+    put("M14", "17:10-Stop doing material cars doing all level report by Oasis banksman")
+    for i, bid in enumerate(["BCP003 +BCP004", "BCP001 +BCP002", "F5+F6", "F3+F4"], 15):
+        put(f"A{i}", 19); put(f"B{i}", 1); put(f"C{i}", bid)
+    for i, lvl in enumerate(["14 Level", "15 Level", "16 Level", "17 Level", "18 Level", "19 Level"], 15):
+        put(f"D{i}", lvl)
+    put("A24", "Total"); put("B24", 4); put("D24", "Total"); put("E24", 0); put("F24", 0); put("J24", 0); put("L24", 0)
+
+
+def test_engineering_snapshot_layout():
+    recs, msgs = parser.parse_file(_xlsx(engineering_sheet), "Eng snapshot.xlsx")
+    assert not msgs and len(recs) == 1
+    r = recs[0]
+    assert r["report"] == F.ENGINEERING and r["date"] == date(2026, 9, 18)
+    assert r["values"] == {
+        "engineering_availability": pytest.approx(56.36), "hoisting_availability": pytest.approx(55.91),
+        "overall_belt_availability": 100, "surface_belt_availability": 100,
+        "eng_reef_hoisted": 3513, "eng_hoist_mtd": 65787, "eng_delivered": 2576, "eng_mill_mtd": 66524,
+        "surface_stock": 1662, "ug_stock": 1000, "underlay": 13.2, "overlay": 12.8, "skips": 0}
+
+
+def test_shaft_car_report_layout_reads_total_rows():
+    recs, msgs = parser.parse_file(_xlsx(car_report_sheet), "Car report.xlsx")
+    assert not msgs and len(recs) == 1
+    r = recs[0]
+    assert r["report"] == F.LOGISTICS and r["date"] == date(2026, 9, 20)
+    assert r["values"] == {"booked": 53, "empty_up": 47, "closing_ug": 18, "full_down": 23, "closing_surface": 29,
+                           "explosives_down": 0, "vent_pipes_down": 0, "bogeys_slung": 4}
+    assert "SC011" in r["note"] and "Oasis banksman" in r["note"]
+
+
+def test_pdf_words_are_rebuilt_into_label_daily_mtd_rows():
+    def w(text, x0, x1, top):
+        return dict(text=text, x0=x0, x1=x1, top=top)
+    words = [w("Thembelani", 184, 220, 60), w("Daily", 222, 240, 60), w("Report", 242, 265, 60),
+             w("18", 267, 275, 60), w("Sept", 277, 292, 60), w("2026", 294, 310, 60),
+             w("Month", 312, 330, 60), w("to", 332, 338, 60), w("Date", 340, 355, 60),
+             w("Actual", 184.9, 204.6, 409), w("Reef", 206, 220, 409.4), w("Tonnes", 222, 245, 409),
+             w("3", 343.9, 347.3, 409), w("512", 348.9, 359.0, 409), w("65", 404.2, 411.0, 409), w("427", 412.6, 422.7, 409),
+             w("%", 184.9, 190, 420), w("Achieved", 192, 220, 420), w("67,3%", 343, 359, 420), w("78,4%", 404, 422, 420)]
+    grid = parser.words_to_grid(words)
+    assert grid[1] == ["Actual Reef Tonnes", "3512", "65427"]
+    assert grid[2] == ["% Achieved", "67,3%", "78,4%"]
+    recs = parser.parse_grid(F.PRODUCTION, grid)
+    assert recs[0]["date"] == date(2026, 9, 18)
+    assert recs[0]["values"] == {"reef_hoisted": 3512, "reef_hoisted_mtd": 65427}
+
+
+def test_south_african_number_formats():
+    assert parser.to_number("3 513") == 3513
+    assert parser.to_number("56,36%") == pytest.approx(56.36)
+    assert parser.to_number("-1 706") == -1706
+    assert parser.to_number("1,123 t") == 1123
+    assert parser.to_number("1 234,5") == 1234.5
+    assert parser.to_number("—") is None
+
+
+SAMPLE_PDF = os.environ.get("MTD_SAMPLE_PDF")
+
+
+@pytest.mark.skipif(not SAMPLE_PDF, reason="set MTD_SAMPLE_PDF to a Daily Production Report PDF")
+def test_real_production_pdf():
+    recs, msgs = parser.parse_file(open(SAMPLE_PDF, "rb").read(), os.path.basename(SAMPLE_PDF))
+    assert recs and recs[0]["report"] == F.PRODUCTION
+    v = recs[0]["values"]
+    assert {"reef_hoisted", "reef_hoisted_mtd", "trammed_mtd", "delivered_mtd", "stoping_actual_mtd"} <= set(v)
+
+
+def test_upload_real_layouts_warns_about_mismatched_dates(client):
+    r = client.post("/upload", data={"files": [(io.BytesIO(_xlsx(engineering_sheet)), "Eng.xlsx"),
+                                               (io.BytesIO(_xlsx(car_report_sheet)), "Cars.xlsx")]},
+                    content_type="multipart/form-data")
+    assert b"different dates" in r.data
+    assert b"3,513 t" in r.data and b"53 cars" in r.data

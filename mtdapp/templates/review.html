@@ -2,7 +2,8 @@
 {% block title %}Check figures{% endblock %}
 {% block body %}
 <h1>Check the figures before saving</h1>
-<p class="sub">Untick anything you don't want to save, or correct its date.</p>
+<p class="sub">Untick anything you don't want to save, or correct its date. Check the dates especially:
+  the production, engineering and car report for the same shift day should all carry the same date.</p>
 {% for m in messages %}<div class="flash error">{{ m }}</div>{% endfor %}
 <form method="post" action="{{ url_for('upload_confirm') }}">
   <input type="hidden" name="token" value="{{ token }}">
@@ -16,8 +17,8 @@
       <table class="kv small">
         {% for f in REPORTS[r.report].fields %}
           {% set v = r['values'].get(f.key) %}{% set mv = r['values'].get(f.key ~ '_mtd') %}
-          <tr><td>{{ f.label }}</td><td>{% if v is not none %}{{ v|n(2) }} {{ f.unit }}{% else %}<span class="muted">not reported</span>{% endif %}
-            {% if mv is not none %}<br><span class="muted">MTD {{ mv|n(1) }}</span>{% endif %}</td></tr>
+          <tr><td>{{ f.label }}</td><td>{% if v is not none %}{{ v|v }} {{ f.unit }}{% else %}<span class="muted">not reported</span>{% endif %}
+            {% if mv is not none %}<br><span class="muted">MTD {{ mv|v }}</span>{% endif %}</td></tr>
         {% endfor %}
       </table>
       {% if r.note %}<p class="small">Note: {{ r.note }}</p>{% endif %}

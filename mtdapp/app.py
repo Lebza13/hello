@@ -32,6 +32,13 @@ def create_app(db_path=None, data_dir=None):
     def n_filter(v, dp=0):
         return calc.fmt(v, dp)
 
+    @app.template_filter("v")
+    def value_filter(v):
+        """Whole numbers without decimals, otherwise up to 2 decimals."""
+        if v is None:
+            return "—"
+        return f"{v:,.0f}" if float(v).is_integer() else f"{v:,.2f}".rstrip("0")
+
     @app.template_filter("signed")
     def signed(v, dp=0):
         return "—" if v is None else f"{v:+,.{dp}f}"
@@ -107,6 +114,10 @@ def create_app(db_path=None, data_dir=None):
         token = uuid.uuid4().hex
         with open(os.path.join(pending_dir, token + ".json"), "w") as out:
             json.dump(records, out, default=str)
+        dates = sorted({r["date"] for r in records})
+        if len(records) > 1 and len(dates) > 1:
+            messages.append("The reports carry different dates (" + ", ".join(dates) +
+                            "). If they are for the same day, correct the date before saving.")
         return render_template("review.html", records=records, messages=messages, token=token)
 
     @app.route("/upload/confirm", methods=["POST"])
