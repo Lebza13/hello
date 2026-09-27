@@ -64,6 +64,10 @@ calendar and management action history.
 | Engineering snapshot | Picture (JPG/PNG) | **Reporting date**, Eng/Hoisting/Belt availabilities, Hoist Today/MTD, Mill Today/MTD, surface & U/G stocks, underlay, overlay, skips |
 | Shaft Car Report | Picture (JPG/PNG) | The **Total** rows: booked, empties up, empties left underground, full cars down, full cars left on surface; explosives down, vent pipes down, bogeys slung; remarks and major delays become the day's note |
 
+The Shaft Car Report is the authority for all car figures. The car numbers printed on the
+production PDF are ignored, and figures from an uploaded car report replace any imported history
+for that day.
+
 The same reports as Excel files work too.
 
 **Pictures**: the app finds the table's ruled lines, reads each cell separately with Tesseract
