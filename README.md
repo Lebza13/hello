@@ -11,7 +11,11 @@ Each day you upload the three daily reports and the app:
 
 ## Start it
 
-Needs Python 3.10 or newer.
+Needs Python 3.10 or newer, and **Tesseract OCR** for reading the report pictures:
+
+* Windows: install from https://github.com/UB-Mannheim/tesseract/wiki (default folder is found automatically;
+  otherwise set `TESSERACT_CMD` to the full path of `tesseract.exe`)
+* Ubuntu/Debian: `sudo apt install tesseract-ocr`
 
 ```bash
 python -m venv .venv
@@ -27,11 +31,14 @@ The app needs no internet connection.
 
 ## Daily use
 
-1. **Upload daily reports**: pick the Daily Production Report, Engineering Daily Snapshot
-   and Material Car Report. They can be three files or one workbook with three sheets.
-2. Check the figures on the review screen, correct a date if needed, and press **Save to history**.
+1. **Upload daily reports**: select the three reports together: the Daily Production Report (PDF),
+   the engineering snapshot (picture) and the Shaft Car Report (picture).
+2. Reports uploaded together are one reporting day. **The engineering report's date is the reporting
+   date** for all of them (the car report often carries a different date).
+3. Check the figures on the review screen. Every figure can be corrected there. Figures read from
+   pictures are marked, so compare them with the picture. Press **Save to history**.
    Uploading the same date again replaces it.
-3. The **Dashboard** now shows the new position. **Download consolidated Excel** gives the
+4. The **Dashboard** now shows the new position. **Download consolidated Excel** gives the
    workbook for distribution.
 
 Other pages:
@@ -51,25 +58,28 @@ calendar and management action history.
 
 ## How the input files are read
 
-The three Thembelani reports are read as they are today:
-
-| Report | Format | What is read |
+| Report | Arrives as | What is read |
 |---|---|---|
-| Daily Production Report | PDF (or Excel) | Stoping, primary reef/waste development, planned & actual reef tonnes, waste tonnes, U/G trammed, delivered to concentrator: each **Daily and MTD**. The date comes from the title ("Thembelani Daily Report 18 Sept 2026") |
-| Engineering snapshot | Excel | Eng/Hoisting/Belt availabilities, Hoist Today/MTD, Mill Today/MTD, surface & U/G stocks, underlay, overlay, skips |
-| Shaft Car Report | Excel | The **Total** row: booked, empties up, empties left underground, full cars down, full cars left on surface; explosives down, vent pipes down, bogeys slung; remarks and major delays become the day's note |
+| Daily Production Report | PDF | Stoping, primary reef/waste development, planned & actual reef tonnes, waste tonnes, U/G trammed, delivered to concentrator: each **Daily and MTD** |
+| Engineering snapshot | Picture (JPG/PNG) | **Reporting date**, Eng/Hoisting/Belt availabilities, Hoist Today/MTD, Mill Today/MTD, surface & U/G stocks, underlay, overlay, skips |
+| Shaft Car Report | Picture (JPG/PNG) | The **Total** rows: booked, empties up, empties left underground, full cars down, full cars left on surface; explosives down, vent pipes down, bogeys slung; remarks and major delays become the day's note |
+
+The same reports as Excel files work too.
+
+**Pictures**: the app finds the table's ruled lines, reads each cell separately with Tesseract
+and rebuilds the table. It then reads it like a spreadsheet. Safety nets:
+
+* a number that isn't read cleanly (e.g. "2a") is left blank ("not reported"), never guessed;
+* on the car report each Total is checked against the level rows above it, an unreadable Total
+  is replaced by the sum of the level rows, and any disagreement is shown on the review screen;
+* everything is shown for checking and correction before it is saved.
+
+Clear, uncropped screenshots read best. Blurry phone photos of a screen may need more corrections.
 
 South African number formats are understood ("3 513", "56,36%", "13,2").
 Blank cells are stored as "not reported". They are never counted as zero.
-
-How it works: the app looks for known labels anywhere in each sheet and takes the number
-to the right. A second number on the same row is taken as the MTD. On the car report it
-reads the Total row under each column heading. If a report's wording changes, add the new
-wording to the `aliases` of that field in [`mtdapp/fields.py`](mtdapp/fields.py).
-Screenshots/scanned images can't be read. Upload the Excel or PDF file itself.
-
-Always check the dates on the review screen: the three reports for one shift day should carry
-the same date, and the app warns when they don't.
+If a report's wording changes, add the new wording to the `aliases` of that field in
+[`mtdapp/fields.py`](mtdapp/fields.py).
 
 ## Calculations (same as the spreadsheet)
 
@@ -88,5 +98,6 @@ the same date, and the app warns when they don't.
 .venv/bin/pip install pytest
 .venv/bin/python -m pytest tests
 # optional: check against the real files
-MTD_SAMPLE_WORKBOOK=/path/to/consolidated.xlsx MTD_SAMPLE_PDF=/path/to/daily_report.pdf .venv/bin/python -m pytest tests
+MTD_SAMPLE_WORKBOOK=/path/to/consolidated.xlsx MTD_SAMPLE_PDF=/path/to/daily_report.pdf \
+  MTD_SAMPLE_IMAGES=/path/to/engineering.jpg,/path/to/car_report.jpg .venv/bin/python -m pytest tests
 ```

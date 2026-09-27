@@ -2,20 +2,21 @@
 {% block title %}Upload daily reports{% endblock %}
 {% block body %}
 <h1>Upload daily reports</h1>
-<p class="sub">Choose today's three reports: the Daily Production Report (PDF or Excel), the Engineering daily snapshot
-  and the Shaft Car Report. Select all three at once. They can be separate files or one workbook with three sheets. The app works out which report each sheet is,
+<p class="sub">Select today's three reports together: the Daily Production Report (PDF), the engineering snapshot (picture)
+  and the Shaft Car Report (picture). Reports uploaded together are one reporting day, and the date on the engineering
+  report is used for all of them. Reading pictures takes about 20 seconds. The app works out which report each sheet is,
   reads the figures, and shows them to you before anything is saved. Uploading a date again replaces that date.</p>
 <div class="grid g2">
   <form class="card" method="post" enctype="multipart/form-data">
-    <p><label><b>Files</b> (.xlsx, .xlsm, .csv or PDF)<br>
-      <input type="file" name="files" multiple required accept=".xlsx,.xlsm,.csv,.pdf"></label></p>
+    <p><label><b>Files</b> (PDF, JPG/PNG pictures, Excel or CSV)<br>
+      <input type="file" name="files" multiple required accept=".pdf,.jpg,.jpeg,.png,.bmp,.tif,.tiff,.webp,.xlsx,.xlsm,.csv"></label></p>
     <p><label><b>Report date</b> <span class="muted small">— only used when a file has no date in it or its name</span><br>
       <input type="date" name="report_date"></label></p>
     <p><label><b>Report type</b><br>
       <select name="report"><option value="">Detect automatically</option>
         {% for k, r in REPORTS.items() %}<option value="{{ k }}">{{ r.title }}</option>{% endfor %}
       </select></label></p>
-    <button>Read files</button>
+    <button onclick="this.textContent='Reading files…'">Read files</button>
   </form>
   <div class="card">
     <b>Input templates</b>

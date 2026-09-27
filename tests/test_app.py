@@ -292,9 +292,114 @@ def test_real_production_pdf():
     assert {"reef_hoisted", "reef_hoisted_mtd", "trammed_mtd", "delivered_mtd", "stoping_actual_mtd"} <= set(v)
 
 
-def test_upload_real_layouts_warns_about_mismatched_dates(client):
-    r = client.post("/upload", data={"files": [(io.BytesIO(_xlsx(engineering_sheet)), "Eng.xlsx"),
-                                               (io.BytesIO(_xlsx(car_report_sheet)), "Cars.xlsx")]},
-                    content_type="multipart/form-data")
-    assert b"different dates" in r.data
-    assert b"3,513 t" in r.data and b"53 cars" in r.data
+def _review(client, files):
+    r = client.post("/upload", data={"files": files}, content_type="multipart/form-data")
+    assert r.status_code == 200, r.data[:500]
+    token = re.search(rb'name="token" value="([0-9a-f]+)"', r.data).group(1).decode()
+    return r, token
+
+
+def test_engineering_date_is_the_reporting_date_for_the_whole_upload(client):
+    r, token = _review(client, [(io.BytesIO(_xlsx(car_report_sheet)), "Cars.xlsx"),
+                                (io.BytesIO(_xlsx(engineering_sheet)), "Eng.xlsx")])
+    # the car report says 20/09/2026, the engineering report 18/09/2026
+    assert r.data.count(b'value="2026-09-18"') == 2 and b'value="2026-09-20"' not in r.data
+    assert b"set to the engineering report date" in r.data
+    client.post("/upload/confirm", data={"token": token, "use_0": "on", "use_1": "on",
+                                         "date_0": "2026-09-18", "date_1": "2026-09-18"})
+    db = client.application.db
+    assert db.day(F.LOGISTICS, "2026-09-18")["values"]["booked"] == 53
+    assert db.day(F.ENGINEERING, "2026-09-18")["values"]["eng_reef_hoisted"] == 3513
+
+
+def test_without_engineering_report_different_dates_are_flagged(client):
+    other = openpyxl.load_workbook(io.BytesIO(_xlsx(car_report_sheet)))
+    other.active["B1"] = "21/09/2026"
+    buf = io.BytesIO()
+    other.save(buf)
+    r, _ = _review(client, [(io.BytesIO(_xlsx(car_report_sheet)), "Cars.xlsx"),
+                            (io.BytesIO(filled_template(date(2026, 9, 18), {F.PRODUCTION: SAMPLE[F.PRODUCTION]})),
+                             "prod.xlsx")])
+    assert b"No engineering report in this upload" in r.data
+
+
+def test_values_corrected_on_the_review_screen_are_saved(client):
+    r, token = _review(client, [(io.BytesIO(_xlsx(engineering_sheet)), "Eng.xlsx")])
+    assert b'name="val_0_eng_reef_hoisted" value="3,513"' in r.data
+    client.post("/upload/confirm", data={"token": token, "use_0": "on", "date_0": "2026-09-18",
+                                         "val_0_eng_reef_hoisted": "3 600", "val_0_skips": "",
+                                         "val_0_underlay": "13,2", "note_0": "checked"})
+    rec = client.application.db.day(F.ENGINEERING, "2026-09-18")
+    assert rec["values"] == {"eng_reef_hoisted": 3600, "underlay": 13.2}
+    assert rec["note"] == "checked"
+
+
+def test_unreadable_total_falls_back_to_sum_of_levels_and_mismatch_is_flagged():
+    grid = [["LEVEL", "BOOKED", "Empties Up"],
+            ["14LEV", "5", "1"], ["15LEV", "6", "0"],
+            ["Total", None, "4"]]
+    vals, warnings = parser.column_totals(F.LOGISTICS, grid)
+    assert vals == {"booked": 11, "empty_up": 4}
+    assert any("sum of the rows above" in w for w in warnings)
+    assert any("Empty Cars Up: Total says 4 but the rows above add up to 1" in w for w in warnings)
+
+
+def test_ocr_cleanup_snaps_labels_and_blanks_garbled_numbers():
+    grid = [["Bogevs Down", "Full Cars Lefton Surface", "2a", "29", "56,36%", "18/09/2026 Date", "14LEV"]]
+    cleaned = parser.clean_ocr_grid(grid)[0]
+    assert parser.norm(cleaned[0]) == "bogeysdown"
+    assert parser.norm(cleaned[1]) == "fullcarsleftonsurface"
+    assert cleaned[2:] == [None, "29", "56,36%", "18/09/2026 Date", "14LEV"]
+
+
+def _tesseract_available():
+    try:
+        from mtdapp import ocr
+        ocr._libs()
+        return True
+    except Exception:
+        return False
+
+
+FONT = next((f for f in ("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+                         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "C:/Windows/Fonts/arialbd.ttf")
+             if os.path.exists(f)), None)
+
+
+@pytest.mark.skipif(not _tesseract_available() or not FONT, reason="Tesseract OCR or a TrueType font not available")
+def test_picture_of_a_table_is_read():
+    """A ruled table drawn like the engineering snapshot is read cell by cell."""
+    from PIL import Image, ImageDraw, ImageFont
+    rows = [("18/09/2026", "Date"), ("Eng Avail", "56,36%"), ("Hoist Today", "3 513"), ("Mill Today", "2 576"),
+            ("Surface Stocks", "1 662"), ("Underlay (meter)", "13,2"), ("Skips", "0")]
+    img = Image.new("RGB", (680, 60 * len(rows) + 20), "white")
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.truetype(FONT, 32)
+    for i, (a, b) in enumerate(rows):
+        y = 10 + 60 * i
+        draw.rectangle((10, y, 430, y + 60), outline="black", width=2)
+        draw.rectangle((430, y, 670, y + 60), outline="black", width=2)
+        draw.text((20, y + 12), a, font=font, fill="black")
+        draw.text((660 - draw.textlength(b, font=font), y + 12), b, font=font, fill="black")
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    recs, msgs = parser.parse_file(buf.getvalue(), "eng.png")
+    assert recs and recs[0]["report"] == F.ENGINEERING and recs[0]["from_image"]
+    assert recs[0]["date"] == date(2026, 9, 18)
+    assert recs[0]["values"] == {"engineering_availability": pytest.approx(56.36), "eng_reef_hoisted": 3513,
+                                 "eng_delivered": 2576, "surface_stock": 1662, "underlay": 13.2, "skips": 0}
+
+
+SAMPLE_IMAGES = os.environ.get("MTD_SAMPLE_IMAGES")   # "engineering.jpg,carreport.jpg"
+
+
+@pytest.mark.skipif(not SAMPLE_IMAGES, reason="set MTD_SAMPLE_IMAGES=eng.jpg,cars.jpg to test real pictures")
+def test_real_report_pictures():
+    eng, cars = SAMPLE_IMAGES.split(",")
+    e = parser.parse_file(open(eng, "rb").read(), os.path.basename(eng))[0][0]
+    c = parser.parse_file(open(cars, "rb").read(), os.path.basename(cars))[0][0]
+    assert e["report"] == F.ENGINEERING and c["report"] == F.LOGISTICS
+    assert e["values"]["eng_reef_hoisted"] == 3513 and e["values"]["engineering_availability"] == pytest.approx(56.36)
+    assert {k: c["values"][k] for k in ("booked", "empty_up", "closing_ug", "full_down", "closing_surface",
+                                        "bogeys_slung")} == dict(booked=53, empty_up=47, closing_ug=18, full_down=23,
+                                                                 closing_surface=29, bogeys_slung=4)

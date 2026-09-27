@@ -18,6 +18,29 @@ from .db import DB
 BASE = os.environ.get("MTD_DATA_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data"))
 
 
+def apply_reporting_date(records):
+    """Reports uploaded together belong to one reporting day, and the engineering
+    report's date is the authoritative reporting date. Returns messages to show."""
+    by_report = {}
+    for r in records:
+        by_report.setdefault(r["report"], []).append(r)
+    if any(len(v) > 1 for v in by_report.values()):
+        return []          # a multi-day back-fill: every row keeps its own date
+    eng = by_report.get(F.ENGINEERING)
+    if eng:
+        day = eng[0]["date"]
+        for r in records:
+            if r["date"] != day:
+                r["date_note"] = f"file says {r['date']}; set to the engineering report date"
+                r["date"] = day
+        return []
+    dates = sorted({r["date"] for r in records})
+    if len(dates) > 1:
+        return ["No engineering report in this upload, so there is no authoritative reporting date. "
+                "The files carry different dates (" + ", ".join(dates) + "): set the correct date before saving."]
+    return []
+
+
 def create_app(db_path=None, data_dir=None):
     data_dir = data_dir or BASE
     app = Flask(__name__)
@@ -102,7 +125,6 @@ def create_app(db_path=None, data_dir=None):
             for r in recs:
                 r["date"] = r["date"].isoformat()
                 r["file"], r["stored"] = name, keep
-                r["exists"] = db.day(r["report"], r["date"]) is not None
             records += recs
             messages += msgs
             stored.append(keep)
@@ -110,14 +132,13 @@ def create_app(db_path=None, data_dir=None):
             for m in messages:
                 flash(m, "error")
             return redirect(url_for("upload"))
+        messages += apply_reporting_date(records)
+        for r in records:
+            r["exists"] = db.day(r["report"], r["date"]) is not None
         os.makedirs(pending_dir, exist_ok=True)
         token = uuid.uuid4().hex
         with open(os.path.join(pending_dir, token + ".json"), "w") as out:
             json.dump(records, out, default=str)
-        dates = sorted({r["date"] for r in records})
-        if len(records) > 1 and len(dates) > 1:
-            messages.append("The reports carry different dates (" + ", ".join(dates) +
-                            "). If they are for the same day, correct the date before saving.")
         return render_template("review.html", records=records, messages=messages, token=token)
 
     @app.route("/upload/confirm", methods=["POST"])
@@ -139,6 +160,14 @@ def create_app(db_path=None, data_dir=None):
             if not parser.to_date(d):
                 continue
             d = parser.to_date(d).isoformat()
+            if any(k.startswith(f"val_{i}_") for k in request.form):     # values as corrected on screen
+                r["values"] = {}
+                for k in F.all_keys(r["report"]):
+                    v = parser.to_number(request.form.get(f"val_{i}_{k}"))
+                    if v is not None:
+                        r["values"][k] = v
+            if f"note_{i}" in request.form:
+                r["note"] = request.form.get(f"note_{i}") or None
             db.save_day(r["report"], d, r["values"], source_file=r["file"], note=r.get("note"))
             saved.append(f"{F.REPORTS[r['report']]['title']} {d}")
             saved_dates.append(d)

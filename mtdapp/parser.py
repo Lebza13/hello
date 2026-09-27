@@ -175,6 +175,9 @@ def pdf_grid(data):
 
 def read_grids(data, filename):
     """Return [(sheet_name, grid)] where grid is a list of rows of cell values."""
+    from . import ocr
+    if ocr.is_image(data, filename):
+        return [("image", clean_ocr_grid(ocr.image_grid(data)))]
     if filename.lower().endswith(".pdf") or data[:5] == b"%PDF-":
         return pdf_grid(data)
     if filename.lower().endswith(".csv"):
@@ -185,6 +188,53 @@ def read_grids(data, filename):
     out = []
     for ws in wb.worksheets:
         out.append((ws.title, [list(r) for r in ws.iter_rows(values_only=True)]))
+    return out
+
+
+def _vocabulary():
+    """Every label the parser knows, keyed by its normalized form."""
+    words = {}
+    for rep in F.REPORTS:
+        for f in F.fields(rep):
+            for n in [f["label"]] + f.get("aliases", []):
+                words.setdefault(norm(n), n)
+                if f.get("mtd"):
+                    words.setdefault(norm(n + " MTD"), n + " MTD")
+            for n in f.get("column") or ():
+                if n:
+                    words.setdefault(norm(n), n)
+    for n in F.DATE_ALIASES + F.NOTE_COLUMNS + ["Total"]:
+        words.setdefault(norm(n), n)
+    return words
+
+
+NUMBER_TEXT = re.compile(r"[-+]?\d[\d ]*([.,]\d+)?\s*%?")
+
+
+def clean_ocr_grid(grid):
+    """Tidy OCR text: snap near-miss labels to the known wording ('Bogevs Down' ->
+    'Bogeys Down') and blank out numbers that were not read cleanly ('2a'), so a
+    misread never turns into a wrong figure. Blanked cells show as 'not reported'."""
+    import difflib
+    vocab = _vocabulary()
+    keys = [k for k in vocab if len(k) >= 5]
+    out = []
+    for row in grid:
+        new = []
+        for v in row:
+            if isinstance(v, str):
+                t = v.strip()
+                if NUMBER_TEXT.fullmatch(t) or DATE_TEXT.search(t):
+                    pass
+                elif re.search(r"\d", t) and len(t) <= 8 and not re.search(r"[A-Za-z]{3}", t):
+                    t = None                                   # garbled number
+                elif norm(t) not in vocab and len(norm(t)) >= 5:
+                    m = difflib.get_close_matches(norm(t), keys, n=1, cutoff=0.85)
+                    if m:
+                        t = vocab[m[0]]
+                v = t
+            new.append(v)
+        out.append(new)
     return out
 
 
@@ -227,9 +277,11 @@ def _left(grid, r, c, want):
 
 
 def column_totals(report, grid):
-    """Values from the 'Total' row under column headers (Shaft Car Report layout)."""
+    """Values from the 'Total' row under column headers (Shaft Car Report layout).
+    Returns (values, warnings). The Total is checked against the level rows above it;
+    an unreadable Total is replaced by the sum of the level rows."""
     cells = [(r, c, norm(v)) for r, row in enumerate(grid) for c, v in enumerate(row) if isinstance(v, str)]
-    out = {}
+    out, warnings = {}, []
     for f in F.fields(report):
         if not f.get("column"):
             continue
@@ -242,31 +294,45 @@ def column_totals(report, grid):
             gr, gc = grp[0]
             cands = sorted([(r, c) for r, c in cands if r > gr and c >= gc], key=lambda rc: (rc[1] - gc, rc[0]))
         for r, c in cands:
-            v = _total_below(grid, r, c)
-            if v is not None:
-                out[f["key"]] = v
+            tr = _total_row(grid, r, c)
+            if tr is None:
+                continue
+            total = to_number(grid[tr][c]) if c < len(grid[tr]) else None
+            body = [row[c] if c < len(row) else None for row in grid[r + 1:tr]
+                    if any(v is not None and str(v).strip() for v in row[:max(1, c)])]
+            nums = [to_number(v) for v in body]
+            complete = bool(nums) and all(n is not None for n in nums)
+            if total is None and complete:
+                total = sum(nums)
+                warnings.append(f"{f['label']}: Total unreadable, used the sum of the rows above ({total:g})")
+            elif total is not None and complete and abs(sum(nums) - total) > 1e-6:
+                warnings.append(f"{f['label']}: Total says {total:g} but the rows above add up to {sum(nums):g}")
+            if total is not None:
+                out[f["key"]] = total
                 break
-    return out
+    return out, warnings
 
 
-def _total_below(grid, r, c):
+def _total_row(grid, r, c):
     for rr in range(r + 1, min(len(grid), r + 60)):
-        row = grid[rr]
-        if any(isinstance(v, str) and norm(v) in ("total", "totals") for v in row[:c + 1]):
-            return to_number(row[c]) if c < len(row) else None
+        if any(isinstance(v, str) and norm(v) in ("total", "totals") for v in grid[rr][:c + 1]):
+            return rr
     return None
 
 
 def column_notes(grid):
     """Text written under 'Remarks' / 'Major Delays' headers."""
     heads = {norm(h) for h in F.NOTE_COLUMNS}
+    vocab = _vocabulary()
     notes = []
     for r, row in enumerate(grid):
         for c, v in enumerate(row):
             if isinstance(v, str) and norm(v) in heads:
                 for body in grid[r + 1:r + 40]:
                     t = body[c] if c < len(body) else None
-                    if isinstance(t, str) and t.strip() and norm(t) not in heads:
+                    if isinstance(t, str) and norm(t) in vocab:
+                        break                      # reached the next table's headings
+                    if isinstance(t, str) and re.search(r"[A-Za-z]{3}", t):
                         notes.append(t.strip())
     return "; ".join(dict.fromkeys(notes)) or None
 
@@ -317,7 +383,8 @@ def parse_grid(report, grid, default_date=None, filename=""):
                 return records
 
     # --- column totals + label / value layout --------------------------------
-    vals = {k: _pct(k, v, pct) for k, v in column_totals(report, grid).items()}
+    totals, warnings = column_totals(report, grid)
+    vals = {k: _pct(k, v, pct) for k, v in totals.items()}
     mtd_keys = {f["key"] for f in F.fields(report) if f.get("mtd")}
     found_date, note = None, column_notes(grid)
     for r, row in enumerate(grid):
@@ -347,7 +414,7 @@ def parse_grid(report, grid, default_date=None, filename=""):
             " ".join(str(v) for v in row if v is not None and not isinstance(v, (datetime, date)))) or next(
             (to_date(v) for v in row if isinstance(v, (datetime, date))), None))), None)
     d = found_date or to_date(filename, year) or default_date
-    return [dict(date=d, values=vals, note=note)]
+    return [dict(date=d, values=vals, note=note, warnings=warnings)]
 
 
 def _pct(key, num, pct_keys):
@@ -359,7 +426,9 @@ def _pct(key, num, pct_keys):
 def parse_file(data, filename, default_date=None, forced_report=None):
     """Parse an uploaded file. Returns (records, messages).
     Each record: {report, date, values, note, sheet}."""
+    from . import ocr
     records, messages = [], []
+    from_image = ocr.is_image(data, filename)
     for sheet, grid in read_grids(data, filename):
         report, score = classify(sheet, filename, grid, forced_report)
         if not report:
@@ -372,6 +441,6 @@ def parse_file(data, filename, default_date=None, forced_report=None):
             if not rec["date"]:
                 messages.append(f"{filename} / {sheet}: no date found - enter a report date and upload again")
                 continue
-            rec.update(report=report, sheet=sheet)
+            rec.update(report=report, sheet=sheet, from_image=from_image)
             records.append(rec)
     return records, messages
