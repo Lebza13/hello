@@ -1,0 +1,18 @@
+# Render.com Blueprint: New > Blueprint > pick this repository.
+services:
+  - type: web
+    name: thembelani-mtd
+    runtime: docker
+    plan: starter            # a persistent disk needs a paid plan
+    healthCheckPath: /healthz
+    disk:
+      name: mtd-data
+      mountPath: /data       # database + uploads survive restarts and redeploys
+      sizeGB: 1
+    envVars:
+      - key: MTD_PASSWORD    # you type this in when creating the service
+        sync: false
+      - key: MTD_SECRET
+        generateValue: true
+      - key: MTD_SECURE_COOKIES
+        value: "1"

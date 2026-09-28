@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Thembelani MTD{% endblock %}</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="MTD">
+<meta name="theme-color" content="#1f3a5f">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.png') }}">
+<link rel="icon" href="{{ url_for('static', filename='icon.png') }}">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f4f1; --surface: #fcfcfb; --surface-2: #efeee9; --border: #e1e0d9;
+  --text: #0b0b0b; --text-2: #52514e; --muted: #898781;
+  --accent: #1f3a5f; --accent-text: #ffffff; --link: #2a78d6;
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --plan: #898781;
+  --good: #0ca30c; --warning: #fab219; --critical: #d03b3b;
+  --good-bg: #e3f5e3; --warning-bg: #fff4d6; --critical-bg: #fbe4e4;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #111110; --surface: #1a1a19; --surface-2: #232321; --border: #2c2c2a;
+    --text: #ffffff; --text-2: #c3c2b7; --muted: #898781;
+    --accent: #2b4f7e; --link: #6aa6ef;
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70;
+    --good-bg: #16301a; --warning-bg: #3a2f10; --critical-bg: #3d1b1b;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111110; --surface: #1a1a19; --surface-2: #232321; --border: #2c2c2a;
+  --text: #ffffff; --text-2: #c3c2b7; --muted: #898781;
+  --accent: #2b4f7e; --link: #6aa6ef;
+  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70;
+  --good-bg: #16301a; --warning-bg: #3a2f10; --critical-bg: #3d1b1b;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: var(--link); }
+header.top { background: var(--accent); color: var(--accent-text); padding: 10px 16px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; }
+header.top .brand { font-weight: 700; letter-spacing: .02em; }
+header.top nav { display: flex; flex-wrap: wrap; gap: 4px; }
+header.top nav a { color: var(--accent-text); text-decoration: none; padding: 6px 10px; border-radius: 6px; opacity: .85; }
+header.top nav a.on, header.top nav a:hover { background: rgba(255,255,255,.14); opacity: 1; }
+main { max-width: 1280px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 20px; margin: 4px 0 2px; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); margin: 22px 0 8px; }
+.sub { color: var(--text-2); margin: 0 0 12px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.grid { display: grid; gap: 12px; }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.g3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.g4 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.tile .label { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-2); }
+.tile .value { font-size: 26px; font-weight: 700; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+.tile .meta { color: var(--text-2); font-size: 13px; }
+.tile { border-left: 4px solid var(--border); }
+.tile.green { border-left-color: var(--good); } .tile.amber { border-left-color: var(--warning); }
+.tile.red { border-left-color: var(--critical); }
+.badge { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600;
+  padding: 1px 8px; border-radius: 99px; white-space: nowrap; }
+.badge::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.badge.green { background: var(--good-bg); color: var(--good); }
+.badge.amber { background: var(--warning-bg); color: #9a6a00; }
+.badge.red { background: var(--critical-bg); color: var(--critical); }
+.badge.none { background: var(--surface-2); color: var(--muted); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .badge.amber { color: var(--warning); } }
+:root[data-theme="dark"] .badge.amber { color: var(--warning); }
+.bar { height: 6px; background: var(--surface-2); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+.bar > span { display: block; height: 100%; border-radius: 3px; background: var(--series-1); }
+.tile.green .bar > span { background: var(--good); } .tile.amber .bar > span { background: var(--warning); }
+.tile.red .bar > span { background: var(--critical); }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+th { font-size: 12px; color: var(--text-2); font-weight: 600; background: var(--surface-2); position: sticky; top: 0; }
+td.num, th.num { text-align: right; }
+.scroll { overflow-x: auto; max-width: 100%; }
+.kv td:first-child { color: var(--text-2); }
+.kv td:last-child { text-align: right; font-weight: 600; white-space: nowrap; }
+form.inline { display: inline; }
+input, select, textarea, button { font: inherit; color: var(--text); }
+input[type=text], input[type=number], input[type=date], input[type=month], select, textarea {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; max-width: 100%; }
+button, .btn { background: var(--accent); color: var(--accent-text); border: 0; border-radius: 6px;
+  padding: 7px 14px; cursor: pointer; text-decoration: none; display: inline-block; }
+.btn.light, button.light { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+button.danger { background: var(--critical); }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0 12px; }
+.flash { padding: 8px 12px; border-radius: 8px; margin-bottom: 8px; }
+.flash.ok { background: var(--good-bg); } .flash.error { background: var(--critical-bg); }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.chart-box { position: relative; height: 300px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--text-2); margin: 6px 0; }
+.legend i { display: inline-block; width: 16px; vertical-align: middle; margin-right: 5px; }
+.tip { position: absolute; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.12); pointer-events: none; min-width: 170px; }
+.tip div { display: flex; align-items: center; gap: 6px; } .tip span { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tip i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+@media (max-width: 600px) { .tile .value { font-size: 22px; } main { padding: 12px 16px; } }
+</style>
+{% block head %}{% endblock %}
+</head>
+<body>
+<header class="top">
+  <div class="brand">THEMBELANI SHAFT · MTD</div>
+  {% set ep = request.endpoint %}
+  {% if ep != 'login' %}<nav>
+    <a href="{{ url_for('dashboard') }}" class="{{ 'on' if ep=='dashboard' }}">Dashboard</a>
+    <a href="{{ url_for('upload') }}" class="{{ 'on' if ep in ('upload','upload_confirm') }}">Upload daily reports</a>
+    <a href="{{ url_for('history') }}" class="{{ 'on' if ep in ('history','edit_day') }}">History</a>
+    <a href="{{ url_for('calendar_page') }}" class="{{ 'on' if ep=='calendar_page' }}">Hoisting calendar</a>
+    <a href="{{ url_for('actions') }}" class="{{ 'on' if ep=='actions' }}">Actions</a>
+    <a href="{{ url_for('settings') }}" class="{{ 'on' if ep=='settings' }}">Settings</a>
+    {% if login_enabled and session.get('ok') %}<a href="{{ url_for('logout') }}">Sign out</a>{% endif %}
+  </nav>{% endif %}
+</header>
+<main>
+  {% for cat, msg in get_flashed_messages(with_categories=true) %}
+    <div class="flash {{ cat }}">{{ msg }}</div>
+  {% endfor %}
+  {% block body %}{% endblock %}
+</main>
+</body>
+</html>

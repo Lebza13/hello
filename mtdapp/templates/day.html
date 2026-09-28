@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ REPORTS[rep].title }}{% endblock %}
+{% block body %}
+<h1>{{ REPORTS[rep].title }} — {{ day|dmy if day else 'new day' }}</h1>
+{% if not day %}<form class="toolbar" method="get">
+  {% for k, r in REPORTS.items() %}<a class="btn {{ '' if k==rep else 'light' }}" href="{{ url_for('edit_day', rep=k) }}">{{ r.title }}</a>{% endfor %}
+</form>{% endif %}
+<form method="post" class="card">
+  <p><label>Date <input type="date" name="date" value="{{ day or today }}" required></label></p>
+  <div class="scroll"><table>
+    <tr><th>Figure</th><th>Daily value</th><th>MTD as stated on report <span class="muted">(optional)</span></th></tr>
+    {% for f in fields %}
+    <tr><td>{{ f.label }} <span class="muted">({{ f.unit }})</span></td>
+      <td><input type="number" step="any" name="{{ f.key }}" value="{{ rec['values'].get(f.key) if rec['values'].get(f.key) is not none else '' }}"></td>
+      <td>{% if f.mtd %}<input type="number" step="any" name="{{ f.key }}_mtd" value="{{ rec['values'].get(f.key ~ '_mtd') if rec['values'].get(f.key ~ '_mtd') is not none else '' }}">{% endif %}</td></tr>
+    {% endfor %}
+  </table></div>
+  <p><label>Note<br><textarea name="note" rows="2" style="width:100%">{{ rec.note or '' }}</textarea></label></p>
+  <div class="toolbar"><button>Save</button>
+    <a class="btn light" href="{{ url_for('history', report=rep, month=(day or today)[:7]) }}">Cancel</a>
+    {% if day %}<span style="flex:1"></span><button class="danger" name="delete" value="1" formnovalidate onclick="return confirm('Delete this day?')">Delete day</button>{% endif %}
+  </div>
+  {% if rec.source_file %}<p class="small muted">Source: {{ rec.source_file }} · updated {{ rec.updated_at }}</p>{% endif %}
+</form>
+{% endblock %}

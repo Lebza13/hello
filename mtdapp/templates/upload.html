@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Upload daily reports{% endblock %}
+{% block body %}
+<h1>Upload daily reports</h1>
+<p class="sub">Choose today's three reports, one per box (each box can pick from Photos or Files), then press
+  <b>Read files</b>. Reports uploaded together are one reporting day, dated by the engineering report.
+  Reading pictures takes about 20 seconds. The app works out which report each sheet is,
+  reads the figures, and shows them to you before anything is saved. Uploading a date again replaces that date.</p>
+<div class="grid g2">
+  <form class="card" method="post" enctype="multipart/form-data">
+    <p><label><b>Daily Production Report</b> <span class="muted small">PDF</span><br>
+      <input type="file" name="files" accept=".pdf,.xlsx,.xlsm,.csv,image/*"></label></p>
+    <p><label><b>Engineering snapshot</b> <span class="muted small">picture — its date is the reporting date</span><br>
+      <input type="file" name="files" accept="image/*,.pdf,.xlsx,.xlsm"></label></p>
+    <p><label><b>Shaft Car Report</b> <span class="muted small">picture</span><br>
+      <input type="file" name="files" accept="image/*,.pdf,.xlsx,.xlsm"></label></p>
+    <p><label><b>Other files</b> <span class="muted small">optional: several at once, e.g. the old consolidated workbook</span><br>
+      <input type="file" name="files" multiple accept=".pdf,.xlsx,.xlsm,.csv,image/*"></label></p>
+    <p><label><b>Report date</b> <span class="muted small">— only used when a file has no date in it or its name</span><br>
+      <input type="date" name="report_date"></label></p>
+    <p><label><b>Report type</b><br>
+      <select name="report"><option value="">Detect automatically</option>
+        {% for k, r in REPORTS.items() %}<option value="{{ k }}">{{ r.title }}</option>{% endfor %}
+      </select></label></p>
+    <button onclick="this.textContent='Reading files…'">Read files</button>
+  </form>
+  <div class="card">
+    <b>Input templates</b>
+    <p class="small">If your source reports are not in a readable layout yet, fill these in — any sheet with a
+      label in one cell and its number in the next cell to the right is understood.</p>
+    <ul>
+      <li><a href="{{ url_for('template', name='all') }}">All three reports in one workbook</a></li>
+      {% for k, r in REPORTS.items() %}<li><a href="{{ url_for('template', name=k) }}">{{ r.title }}</a></li>{% endfor %}
+    </ul>
+    <p class="small muted">Blank cells mean "not reported" and are never treated as zero.
+      To load history, upload the old consolidated MTD workbook here once.</p>
+    <p class="small">No file? <a href="{{ url_for('edit_day', rep='production') }}">Type figures in by hand</a>.</p>
+  </div>
+</div>
+<h2>Recent uploads</h2>
+<div class="card scroll">
+  <table><tr><th>When</th><th>File</th><th>Result</th></tr>
+  {% for u in uploads %}<tr><td class="small">{{ u.uploaded_at.replace('T',' ') }}</td><td>{{ u.filename }}</td><td class="small">{{ u.summary }}</td></tr>
+  {% else %}<tr><td colspan="3" class="muted">Nothing uploaded yet.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

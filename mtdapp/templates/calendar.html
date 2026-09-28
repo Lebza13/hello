@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Hoisting calendar{% endblock %}
+{% block body %}
+<h1>Hoisting calendar — {{ month }}</h1>
+<form method="get" class="toolbar"><label>Month
+  <input type="month" name="month" value="{{ month }}" onchange="this.form.submit()"></label></form>
+<p class="sub">Default roster: Monday–Friday 3 shifts · Sunday night shift only · Saturdays alternate working (2 shifts) / off ·
+  no Friday night shift before an off Saturday. Change any day below (public holidays, extra shifts, stoppages).
+  {% if rec %}<br>After {{ as_at|dmy }}: <b>{{ rec.remaining_shifts|n }} shifts = {{ rec.eq_days|n(1) }} equivalent hoisting days</b>,
+  required rate <b>{{ rec.required|n }} t/day</b>.{% endif %}</p>
+<div class="card scroll">
+<table>
+  <tr><th>Date</th><th>Day</th><th>Roster status</th><th class="num">Shifts</th><th>Note</th><th>Period</th><th></th></tr>
+  {% for c in cal %}
+  {% set fid = 'c' ~ loop.index %}
+  <tr>
+    <td><form id="{{ fid }}" method="post"><input type="hidden" name="date" value="{{ c.date }}"><input type="hidden" name="month" value="{{ month }}"></form>{{ c.date|dmy }}</td>
+    <td>{{ c.day }}</td>
+    <td><input form="{{ fid }}" type="text" name="status" value="{{ c.status }}" size="26"></td>
+    <td class="num"><input form="{{ fid }}" type="number" step="any" min="0" max="4" name="shifts" value="{{ '%g'|format(c.shifts) if c.shifts is not none else '' }}" style="width:5em"></td>
+    <td><input form="{{ fid }}" type="text" name="note" value="{{ c.note }}" size="30"></td>
+    <td class="small">{% if as_at %}{{ 'Elapsed' if c.date <= as_at else 'Remaining' }}{% endif %}</td>
+    <td style="white-space:nowrap"><button form="{{ fid }}" class="light">Save</button>
+      {% if c.overridden %}<button form="{{ fid }}" class="light" name="reset" value="1">Reset</button>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

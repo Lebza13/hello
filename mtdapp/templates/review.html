@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Check figures{% endblock %}
+{% block body %}
+<h1>Check the figures before saving</h1>
+<p class="sub">Correct any figure or date directly in the boxes, untick a report you don't want to save, then press <b>Save to history</b>.
+  Reports uploaded together are saved for one reporting day, which is the engineering report's date.</p>
+{% for m in messages %}<div class="flash error">{{ m }}</div>{% endfor %}
+<form method="post" action="{{ url_for('upload_confirm') }}">
+  <input type="hidden" name="token" value="{{ token }}">
+  <div class="grid g3">
+  {% for r in records %}{% set i = loop.index0 %}
+    <div class="card">
+      <label><input type="checkbox" name="use_{{ i }}" checked> <b>{{ REPORTS[r.report].title }}</b></label>
+      <div class="small muted">{{ r.file }}{% if r.sheet != 'image' %} · sheet “{{ r.sheet }}”{% endif %}</div>
+      {% if r.from_image %}<div class="flash error small" style="margin:8px 0">Read from a picture — compare every figure with the image before saving.</div>{% endif %}
+      <p><label>Reporting date <input type="date" name="date_{{ i }}" value="{{ r.date }}"></label>
+        {% if r.exists %}<span class="badge amber">replaces saved day</span>{% endif %}
+        {% if r.date_note %}<br><span class="small muted">{{ r.date_note }}</span>{% endif %}</p>
+      {% for w in r.warnings or [] %}<div class="flash error small">{{ w }}</div>{% endfor %}
+      <table class="small">
+        <tr><th>Figure</th><th>Value</th>{% if REPORTS[r.report].fields|selectattr('mtd')|list %}<th>MTD</th>{% endif %}</tr>
+        {% for f in REPORTS[r.report].fields %}
+          {% set v = r['values'].get(f.key) %}{% set mv = r['values'].get(f.key ~ '_mtd') %}
+          <tr class="{{ '' if v is not none or mv is not none else 'muted' }}">
+            <td>{{ f.label }} <span class="muted">{{ f.unit }}</span></td>
+            <td><input type="text" inputmode="decimal" name="val_{{ i }}_{{ f.key }}" value="{{ v|v if v is not none else '' }}" placeholder="not reported" style="width:7.5em;text-align:right"></td>
+            {% if REPORTS[r.report].fields|selectattr('mtd')|list %}<td>{% if f.mtd %}<input type="text" inputmode="decimal" name="val_{{ i }}_{{ f.key }}_mtd" value="{{ mv|v if mv is not none else '' }}" style="width:7.5em;text-align:right">{% endif %}</td>{% endif %}
+          </tr>
+        {% endfor %}
+      </table>
+      <p><label class="small">Note<br><textarea name="note_{{ i }}" rows="3" style="width:100%">{{ r.note or '' }}</textarea></label></p>
+    </div>
+  {% endfor %}
+  </div>
+  <div class="toolbar"><button>Save to history</button> <a class="btn light" href="{{ url_for('upload') }}">Cancel</a></div>
+</form>
+{% endblock %}

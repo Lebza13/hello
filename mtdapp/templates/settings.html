@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block body %}
+<h1>Settings</h1>
+<form method="get" class="toolbar"><label>Month
+  <input type="month" name="month" value="{{ month }}" onchange="this.form.submit()"></label></form>
+<form method="post" class="grid g2">
+  <input type="hidden" name="month" value="{{ month }}">
+  <div class="card"><b>Plan for {{ month }}</b>
+    <table>{% for s in SETTINGS %}
+      <tr><td>{{ s.label }} <span class="muted">({{ s.unit }})</span></td>
+        <td><input type="number" step="any" name="{{ s.key }}" value="{{ ms[s.key] }}"></td></tr>{% endfor %}
+    </table>
+    <p class="small muted">Plan to date = daily call × production reports received. Projection = MTD ÷ reports × planned hoisting days.</p>
+  </div>
+  <div class="card"><b>Roster &amp; spillage model</b>
+    <table>
+      <tr><td>A known working Saturday <span class="muted">(Saturdays alternate from this one)</span></td>
+        <td><input type="date" name="anchor" value="{{ anchor }}"></td></tr>
+      {% for s in SPILL %}
+      <tr><td>{{ s.label }} <span class="muted">({{ s.unit }})</span></td>
+        <td><input type="number" step="any" name="{{ s.key }}" value="{{ sp[s.key] }}"></td></tr>{% endfor %}
+    </table>
+  </div>
+  <div><button>Save settings</button></div>
+</form>
+<h2>Backup</h2>
+<div class="grid g2">
+  <div class="card"><b>Download a backup</b>
+    <p class="small">One file with every saved day, setting, calendar change and action. Keep it somewhere safe
+      (e.g. OneDrive or iCloud Drive). Do this weekly.</p>
+    <a class="btn" href="{{ url_for('backup') }}">Download backup</a></div>
+  <form class="card" method="post" action="{{ url_for('restore') }}" enctype="multipart/form-data"
+        onsubmit="return confirm('Replace ALL current data with this backup?')">
+    <b>Restore a backup</b>
+    <p class="small">Replaces all current data with a backup file (.db). Use it when moving the app to a new server.</p>
+    <input type="file" name="backup" accept=".db" required> <button class="light">Restore</button>
+  </form>
+</div>
+{% endblock %}
