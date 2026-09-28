@@ -3,14 +3,21 @@
 Run:  python -m mtdapp          (then open http://localhost:5000)
 """
 import csv
+import hmac
 import io
 import json
 import os
 import re
+import secrets
+import shutil
+import sqlite3
+import tempfile
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
-from flask import Flask, Response, abort, flash, redirect, render_template, request, send_file, url_for
+from flask import (Flask, Response, abort, flash, redirect, render_template, request, send_file, session,
+                   url_for)
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from . import calc, fields as F, history_import, parser, report
 from .db import DB
@@ -41,12 +48,27 @@ def apply_reporting_date(records):
     return []
 
 
+def _stored_secret(data_dir):
+    """A random session key kept in the data folder, so logins survive restarts."""
+    path = os.path.join(data_dir, ".secret_key")
+    if not os.path.exists(path):
+        with open(path, "w") as fh:
+            fh.write(secrets.token_hex(32))
+    return open(path).read().strip()
+
+
 def create_app(db_path=None, data_dir=None):
     data_dir = data_dir or BASE
+    os.makedirs(data_dir, exist_ok=True)
     app = Flask(__name__)
-    app.secret_key = os.environ.get("MTD_SECRET", "mtd-local-secret")
-    app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
-    db = DB(db_path or os.path.join(data_dir, "mtd.db"))
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)   # behind the host's HTTPS proxy
+    app.secret_key = os.environ.get("MTD_SECRET") or _stored_secret(data_dir)
+    app.config.update(MAX_CONTENT_LENGTH=50 * 1024 * 1024, PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+                      SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
+                      SESSION_COOKIE_SECURE=os.environ.get("MTD_SECURE_COOKIES") == "1")
+    password = os.environ.get("MTD_PASSWORD", "")
+    db_file = db_path or os.path.join(data_dir, "mtd.db")
+    db = DB(db_file)
     uploads_dir = os.path.join(data_dir, "uploads")
     pending_dir = os.path.join(data_dir, "pending")
     app.db = db
@@ -83,6 +105,80 @@ def create_app(db_path=None, data_dir=None):
             return m
         ms = db.months()
         return ms[0] if ms else date.today().strftime("%Y-%m")
+
+    # ---- login (only when MTD_PASSWORD is set) ------------------------------
+    @app.before_request
+    def require_login():
+        if not password or request.endpoint in ("login", "healthz", "static"):
+            return None
+        if not session.get("ok"):
+            return redirect(url_for("login", next=request.full_path if request.method == "GET" else None))
+        return None
+
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        if not password:
+            return redirect(url_for("dashboard"))
+        if request.method == "POST":
+            if hmac.compare_digest(request.form.get("password", "").encode(), password.encode()):
+                session.clear()
+                session.permanent = True
+                session["ok"] = True
+                nxt = request.args.get("next") or ""
+                return redirect(nxt if nxt.startswith("/") and not nxt.startswith("//") else url_for("dashboard"))
+            flash("Wrong password.", "error")
+        return render_template("login.html")
+
+    @app.route("/logout")
+    def logout():
+        session.clear()
+        return redirect(url_for("login") if password else url_for("dashboard"))
+
+    @app.route("/healthz")
+    def healthz():
+        return "ok"
+
+    @app.context_processor
+    def auth_ctx():
+        return dict(login_enabled=bool(password))
+
+    # ---- backup / restore ---------------------------------------------------------
+    @app.route("/backup")
+    def backup():
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp.close()
+        src, dst = sqlite3.connect(db_file), sqlite3.connect(tmp.name)
+        with dst:
+            src.backup(dst)
+        src.close()
+        dst.close()
+        data = open(tmp.name, "rb").read()
+        os.remove(tmp.name)
+        return send_file(io.BytesIO(data), as_attachment=True, mimetype="application/octet-stream",
+                         download_name=f"mtd-backup-{date.today().isoformat()}.db")
+
+    @app.route("/restore", methods=["POST"])
+    def restore():
+        f = request.files.get("backup")
+        data = f.read() if f else b""
+        if not data.startswith(b"SQLite format 3"):
+            flash("That file is not an MTD backup (.db).", "error")
+            return redirect(url_for("settings"))
+        tmp = db_file + ".restore"
+        with open(tmp, "wb") as out:
+            out.write(data)
+        try:
+            with sqlite3.connect(tmp) as c:
+                c.execute("SELECT count(*) FROM entries").fetchone()
+        except sqlite3.Error:
+            os.remove(tmp)
+            flash("That backup file is damaged.", "error")
+            return redirect(url_for("settings"))
+        if os.path.exists(db_file):
+            shutil.copy(db_file, db_file + f".before-restore-{datetime.now():%Y%m%d-%H%M%S}")
+        os.replace(tmp, db_file)
+        flash("Backup restored. The previous data was kept as a copy on the server.", "ok")
+        return redirect(url_for("dashboard"))
 
     # ---- dashboard ---------------------------------------------------------
     @app.route("/")
@@ -306,6 +402,8 @@ def create_app(db_path=None, data_dir=None):
 def main():
     app = create_app()
     port = int(os.environ.get("PORT", 5000))
+    if os.environ.get("HOST") == "0.0.0.0" and not os.environ.get("MTD_PASSWORD"):
+        print("Note: no MTD_PASSWORD set - anyone on this network can open the app.")
     host = os.environ.get("HOST", "127.0.0.1")
     print(f"MTD app running on http://{host}:{port}  (data folder: {BASE})")
     app.run(host=host, port=port, debug=False)

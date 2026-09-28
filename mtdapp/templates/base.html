@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Thembelani MTD{% endblock %}</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="MTD">
+<meta name="theme-color" content="#1f3a5f">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.png') }}">
+<link rel="icon" href="{{ url_for('static', filename='icon.png') }}">
 <style>
 :root {
   color-scheme: light;
@@ -105,14 +110,15 @@ button.danger { background: var(--critical); }
 <header class="top">
   <div class="brand">THEMBELANI SHAFT · MTD</div>
   {% set ep = request.endpoint %}
-  <nav>
+  {% if ep != 'login' %}<nav>
     <a href="{{ url_for('dashboard') }}" class="{{ 'on' if ep=='dashboard' }}">Dashboard</a>
     <a href="{{ url_for('upload') }}" class="{{ 'on' if ep in ('upload','upload_confirm') }}">Upload daily reports</a>
     <a href="{{ url_for('history') }}" class="{{ 'on' if ep in ('history','edit_day') }}">History</a>
     <a href="{{ url_for('calendar_page') }}" class="{{ 'on' if ep=='calendar_page' }}">Hoisting calendar</a>
     <a href="{{ url_for('actions') }}" class="{{ 'on' if ep=='actions' }}">Actions</a>
     <a href="{{ url_for('settings') }}" class="{{ 'on' if ep=='settings' }}">Settings</a>
-  </nav>
+    {% if login_enabled and session.get('ok') %}<a href="{{ url_for('logout') }}">Sign out</a>{% endif %}
+  </nav>{% endif %}
 </header>
 <main>
   {% for cat, msg in get_flashed_messages(with_categories=true) %}

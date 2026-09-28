@@ -24,4 +24,17 @@
   </div>
   <div><button>Save settings</button></div>
 </form>
+<h2>Backup</h2>
+<div class="grid g2">
+  <div class="card"><b>Download a backup</b>
+    <p class="small">One file with every saved day, setting, calendar change and action. Keep it somewhere safe
+      (e.g. OneDrive or iCloud Drive). Do this weekly.</p>
+    <a class="btn" href="{{ url_for('backup') }}">Download backup</a></div>
+  <form class="card" method="post" action="{{ url_for('restore') }}" enctype="multipart/form-data"
+        onsubmit="return confirm('Replace ALL current data with this backup?')">
+    <b>Restore a backup</b>
+    <p class="small">Replaces all current data with a backup file (.db). Use it when moving the app to a new server.</p>
+    <input type="file" name="backup" accept=".db" required> <button class="light">Restore</button>
+  </form>
+</div>
 {% endblock %}

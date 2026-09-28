@@ -403,3 +403,31 @@ def test_real_report_pictures():
     assert {k: c["values"][k] for k in ("booked", "empty_up", "closing_ug", "full_down", "closing_surface",
                                         "bogeys_slung")} == dict(booked=53, empty_up=47, closing_ug=18, full_down=23,
                                                                  closing_surface=29, bogeys_slung=4)
+
+
+def test_password_protects_every_page_except_health_check(tmp_path, monkeypatch):
+    monkeypatch.setenv("MTD_PASSWORD", "Shaft2026!")
+    c = create_app(data_dir=str(tmp_path)).test_client()
+    assert c.get("/healthz").data == b"ok"
+    for page in ("/", "/upload", "/history", "/backup", "/export"):
+        r = c.get(page)
+        assert r.status_code == 302 and "/login" in r.headers["Location"], page
+    assert b"Wrong password" in c.post("/login", data={"password": "nope"}).data
+    r = c.post("/login?next=/history", data={"password": "Shaft2026!"})
+    assert r.status_code == 302 and r.headers["Location"].endswith("/history")
+    assert c.get("/").status_code == 200
+    assert c.post("/login?next=//evil.example", data={"password": "Shaft2026!"}).headers["Location"] == "/"
+    c.get("/logout")
+    assert c.get("/").status_code == 302
+
+
+def test_backup_and_restore(client):
+    db = client.application.db
+    db.save_day(F.LOGISTICS, "2026-09-18", {"booked": 53})
+    backup = client.get("/backup").data
+    assert backup.startswith(b"SQLite format 3")
+    db.save_day(F.LOGISTICS, "2026-09-18", {"booked": 1})
+    assert b"not an MTD backup" in client.post("/restore", data={"backup": (io.BytesIO(b"junk"), "x.db")},
+                                                follow_redirects=True).data
+    client.post("/restore", data={"backup": (io.BytesIO(backup), "mtd-backup.db")})
+    assert db.day(F.LOGISTICS, "2026-09-18")["values"] == {"booked": 53}

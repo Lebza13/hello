@@ -29,6 +29,10 @@ Then open http://localhost:5000. To let other PCs on the network use it, start i
 
 The app needs no internet connection.
 
+**Using it on an iPad / from anywhere:** see [DEPLOY_IPAD.md](DEPLOY_IPAD.md). It is hosted with the
+included `Dockerfile` (e.g. on Render.com via `render.yaml`) and protected with a password
+(`MTD_PASSWORD`).
+
 ## Daily use
 
 1. **Upload daily reports**: select the three reports together: the Daily Production Report (PDF),
